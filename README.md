@@ -1,5 +1,9 @@
 # Hotel Offer Orchestrator
 
+> **TODO before publishing:** replace the `OWNER` placeholder with your GitHub user or organisation in
+> (1) the CI badge URL just below and (2) the `git clone` URL under
+> [Deployment → Any Linux VM](#a-any-linux-vm-ec2-digitalocean--with-docker-compose).
+
 [![CI](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-24%20LTS-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
@@ -21,6 +25,9 @@ city share **one** workflow execution. Chaos endpoints let you show each failure
 - [Design decisions](#design-decisions) · [Resilience demo](#resilience-demo) · [Configuration](#configuration)
 - [Testing](#testing) · [Deployment](#deployment) · [Project structure](#project-structure)
 - [Troubleshooting](#troubleshooting) · [Future improvements](#future-improvements)
+
+**Project docs:** [original assignment spec](docs/SPEC.md) ·
+[build report (how it was built and verified)](docs/BUILD_REPORT.md) · [v2 enhancement plan](ENHANCEMENTS.md)
 
 ## Architecture
 
