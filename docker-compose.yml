@@ -27,6 +27,8 @@ x-app-env: &app-env
   COALESCING_ENABLED: ${COALESCING_ENABLED:-true}
   FEATURE_MONITOR: ${FEATURE_MONITOR:-true}
   FEATURE_WARMUP: ${FEATURE_WARMUP:-true}
+  FEATURE_ASK: ${FEATURE_ASK:-true}
+  LLM_PROVIDER: ${LLM_PROVIDER:-none}
 
 services:
   postgresql:

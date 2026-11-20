@@ -15,6 +15,8 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { requestId, responseTime } from './middleware/requestId';
 import { openApiDocument } from './openapi';
 import { adminRouter } from './routes/admin.routes';
+import { askRouter } from './routes/ask.routes';
+import type { AskService } from './services/askService';
 import type { AdminDeps } from './routes/admin.routes';
 import { healthRouter } from './routes/health.routes';
 import { hotelsRouter } from './routes/hotels.routes';
@@ -35,6 +37,8 @@ export interface AppDeps {
   adminExtensions?: AdminDeps['extensions'];
   /** FEATURE_MONITOR: X-Circuit-State header source. */
   circuitHeader?: () => Promise<string>;
+  /** FEATURE_ASK: natural-language search. */
+  askService?: AskService;
 }
 
 /** Builds the Express app from injected dependencies (exported for supertest). */
@@ -87,6 +91,7 @@ export function createApp(deps: AppDeps): Express {
       circuitHeader: deps.circuitHeader,
     }),
   );
+  if (deps.askService) app.use('/api', askRouter(deps.askService));
   app.use('/health', healthRouter(deps.healthService));
   app.use(suppliersRouter(deps.chaos, deps.metrics));
   app.use(

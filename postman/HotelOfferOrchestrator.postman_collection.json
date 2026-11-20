@@ -2239,6 +2239,170 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "13. Natural language search",
+      "description": "Enhancement 4: POST /api/hotels/ask. Works with LLM_PROVIDER=none (rules parser), so CI needs no key.",
+      "item": [
+        {
+          "name": "ask: delhi under 6k",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200 with an interpretation and results', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body.interpretedAs).to.eql({ city: 'delhi', minPrice: null, maxPrice: 6000 });",
+                  "  pm.expect(['rules', 'llm']).to.include(body.parser);",
+                  "});",
+                  "pm.test('results keep the 4-key contract and respect the bound', function () {",
+                  "  pm.expect(body.results.map(function (h) { return h.name; })).to.eql(['Ibis', 'Lemon Tree', 'Holtin', 'Radison']);",
+                  "  body.results.forEach(function (h) {",
+                  "    pm.expect(Object.keys(h)).to.eql(['name', 'price', 'supplier', 'commissionPct']);",
+                  "    pm.expect(h.price).to.be.at.most(6000);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels", "ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"cheap hotels in delhi under 6k\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ask: range in rupees",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('range parsed from rupee amounts', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body.interpretedAs).to.eql({ city: 'delhi', minPrice: 5000, maxPrice: 9000 });",
+                  "  pm.expect(body.results.map(function (h) { return h.name; })).to.eql(['Holtin', 'Radison', 'Hyatt Regency']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels", "ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"hotels in Delhi between ₹5,000 and ₹9,000\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ask again -> parser cache HIT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('interpretation served from the Redis parser cache', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.headers.get('X-Parser-Cache')).to.eql('HIT');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels", "ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"hotels in Delhi between ₹5,000 and ₹9,000\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ask without a city -> 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 422', function () { pm.response.to.have.status(422); });",
+                  "pm.test('error.code is UNPROCESSABLE_QUERY', function () { pm.expect(body.error.code).to.eql('UNPROCESSABLE_QUERY'); });",
+                  "pm.test('error body shape { code, message, details, requestId }', function () {",
+                  "  pm.expect(body.error).to.have.all.keys('code', 'message', 'details', 'requestId');",
+                  "  pm.expect(body.error.requestId).to.eql(pm.response.headers.get('X-Request-Id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels", "ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"cheap hotels under 5k\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

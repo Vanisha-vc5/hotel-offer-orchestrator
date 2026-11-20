@@ -330,3 +330,57 @@ live: temporal schedule describe cache-warmup    → OverlapPolicy Skip, 2m inte
       delhi/mumbai/bangalore refreshed (complete)
 contract guard                                   → passing
 ```
+
+## Enhancement 4: Natural-language search with AI
+
+**What was added (`FEATURE_ASK`, default `true`; `LLM_PROVIDER`, default `none`)**
+
+- **`POST /api/hotels/ask`** with body `{query}` (at most 300 characters, strict). It returns
+  `{query, interpretedAs, parser, results}`, and `results` comes from the same `HotelService.getOffers` /
+  `getFilteredOffers` the GET endpoint uses. Headers: `X-Parser`, `X-Parser-Cache`, `X-Workflow-Id`, `X-Cache`.
+- **`infra/llm.ts`**, a `ToolCaller` abstraction reused by Enhancement 6:
+  - `AnthropicToolCaller` uses the official `@anthropic-ai/sdk` 1.12.0 (pinned) with forced
+    `tool_choice: {type: 'tool'}`, a `strict: true` schema, `max_tokens` 512, per-request `timeout` and
+    `maxRetries: 0`, and a refusal check.
+  - `OpenAICompatibleToolCaller` uses plain `fetch`, a forced function call and an `AbortSignal` timeout.
+- **The parser chain** (`api/services/askService.ts`) tries the LLM (zod-validated), then rules. City validation
+  runs on every parser's output. The interpretation is cached in Redis (`ask:<sha256>`, 1 h). No city gives 422
+  `UNPROCESSABLE_QUERY` with examples.
+- **`domain/queryRules.ts`** is the pure rules parser.
+- **Tests:**
+  - a table-driven rules test with 24 phrasings, 8 amount formats and a word-boundary case
+  - 12 unit tests with mocked LLM clients: valid output, schema-invalid output, an SDK timeout (`LlmTimeoutError`),
+    invalid JSON, an abort-signal timeout, fallback to rules, an injection-shaped city rejected, cache behaviour,
+    the unfiltered path, and 422
+  - 6 supertest cases, including flag off
+  - Postman folder "13. Natural language search" (works with `LLM_PROVIDER=none`, so CI needs no key)
+
+**Decisions**
+
+- **Model:** the plan's default `claude-haiku-5-5` **doesn't exist**. I checked against the Claude API reference;
+  the current Haiku is **`claude-haiku-4-5`**, which became the default (overridable with `LLM_MODEL`). Haiku 4.5
+  still supports forced `tool_choice`, which newer models such as Opus 5.5 and Fable 5.1 reject.
+- **Compose defaults to `LLM_PROVIDER=none`,** so the stack and CI run without secrets. The feature works fully on
+  the rules parser.
+- **An LLM that returns no city falls through to rules** before a 422 is returned. Only city-bearing
+  interpretations are cached.
+
+**Problems found and fixed**
+
+- `ToolSchema` lacked the index signature the SDK's `InputSchema` requires. I added it.
+- **An intermittent newman failure (Enhancement 3 folder):** `X-Cache: HIT` for mumbai right after run-now. The
+  cause: a scheduled tick had started during the "slow B" chaos folder, so run-now's mumbai child was reported
+  `coalesced` while the earlier run was still writing. `runWarmupNow` now also waits (bounded) for in-flight runs
+  of `coalesced` cities, so "run-now returned" means every warm-up city is fresh. Newman then passed 3 runs in a
+  row.
+- The ₹ example looked broken in a Git Bash `curl`. That was the terminal's code page; a UTF-8 body file and
+  newman both parse ₹ correctly.
+
+**Verification**
+
+```
+npm run lint && npm run typecheck && npm test   → Test Files 19 passed, Tests 174 passed
+docker compose up --build -d                     → all 6 services healthy
+newman run #1 / #2 / #3 (after the warm-up fix) → 57 requests, 137 assertions, 0 failed
+contract guard                                   → passing
+```

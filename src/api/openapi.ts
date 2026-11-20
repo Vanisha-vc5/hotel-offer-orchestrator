@@ -184,6 +184,54 @@ export const openApiDocument = {
         },
       },
     },
+    '/api/hotels/ask': {
+      post: {
+        tags: ['Hotels'],
+        summary: 'Natural-language search (FEATURE_ASK)',
+        description:
+          'Parses a free-text query into {city, minPrice, maxPrice} with the configured LLM (forced tool call, ' +
+          'zod-validated, 5s timeout) or the rules parser, then serves results through the same service as ' +
+          'GET /api/hotels. Interpretations are cached for an hour (X-Parser-Cache).',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['query'],
+                additionalProperties: false,
+                properties: { query: { type: 'string', maxLength: 300 } },
+              },
+              example: { query: 'cheap hotels in delhi under 6k' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Interpretation and results',
+            content: {
+              'application/json': {
+                example: {
+                  query: 'cheap hotels in delhi under 6k',
+                  interpretedAs: { city: 'delhi', minPrice: null, maxPrice: 6000 },
+                  parser: 'rules',
+                  results: delhiOffers.slice(0, 4),
+                },
+              },
+            },
+          },
+          400: errorResponse('Invalid body', {
+            body: errorExample('VALIDATION_ERROR', 'Invalid request'),
+          }),
+          422: errorResponse('No city found in the query', {
+            noCity: errorExample(
+              'UNPROCESSABLE_QUERY',
+              'Could not find a city in the query. Mention a city, …',
+            ),
+          }),
+        },
+      },
+    },
     '/api/hotels/insights': {
       get: {
         tags: ['Hotels'],
@@ -537,6 +585,7 @@ export const openApiDocument = {
                   'NOT_FOUND',
                   'UNAUTHORIZED',
                   'RATE_LIMITED',
+                  'UNPROCESSABLE_QUERY',
                   'SUPPLIERS_UNAVAILABLE',
                   'TEMPORAL_UNAVAILABLE',
                   'REDIS_UNAVAILABLE',

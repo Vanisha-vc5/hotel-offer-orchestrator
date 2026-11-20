@@ -101,6 +101,17 @@ const EnvSchema = z.object({
     ),
   WARMUP_INTERVAL: duration.default('2m'),
 
+  /** Enhancement 4: POST /api/hotels/ask natural-language search. */
+  FEATURE_ASK: bool.default(true),
+  LLM_PROVIDER: z.enum(['none', 'anthropic', 'openai-compatible']).default('none'),
+  /** anthropic default: claude-haiku-4-5. Required for openai-compatible. */
+  LLM_MODEL: z.string().optional(),
+  /** anthropic: optional (SDK falls back to ANTHROPIC_API_KEY / ant profile). */
+  LLM_API_KEY: z.string().optional(),
+  /** openai-compatible base URL, e.g. https://api.groq.com/openai/v1 or http://localhost:11434/v1 */
+  LLM_BASE_URL: z.string().url().optional(),
+  LLM_TIMEOUT_MS: ms.default(5_000),
+
   // Chaos / admin
   ENABLE_CHAOS: bool.default(true),
   ADMIN_TOKEN: z
@@ -128,6 +139,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
   const cfg = parsed.data;
+  if (cfg.LLM_PROVIDER === 'openai-compatible' && (!cfg.LLM_BASE_URL || !cfg.LLM_MODEL)) {
+    throw new ConfigError(['LLM_PROVIDER=openai-compatible requires LLM_BASE_URL and LLM_MODEL']);
+  }
   if (Boolean(cfg.TEMPORAL_TLS_CERT_PATH) !== Boolean(cfg.TEMPORAL_TLS_KEY_PATH)) {
     throw new ConfigError([
       'TEMPORAL_TLS_CERT_PATH and TEMPORAL_TLS_KEY_PATH must be set together (mTLS)',

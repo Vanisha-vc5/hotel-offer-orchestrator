@@ -14,6 +14,11 @@ import { createApp } from './app';
 import type { AppDeps } from './app';
 import { monitorAdminRoutes } from './routes/monitor.routes';
 import { warmupAdminRoutes } from './routes/warmup.routes';
+import { createToolCaller } from '../infra/llm';
+import { supplierAHotels } from '../mocks/supplierA.data';
+import { supplierBHotels } from '../mocks/supplierB.data';
+import { AskService, LlmQueryParser, RulesQueryParser } from './services/askService';
+import type { QueryParser } from './services/askService';
 import { runWarmupNow, warmupStatus } from '../temporal/warmupClient';
 import { HealthService } from './services/healthService';
 import { HotelService } from './services/hotelService';
@@ -67,6 +72,23 @@ function buildDeps(cfg: Config): AppDeps {
       await monitorStore.resetCircuits();
       await resetMonitors(await getTemporalClient()).catch(() => undefined);
     });
+  }
+
+  if (cfg.FEATURE_ASK) {
+    const knownCities = [
+      ...new Set([...supplierAHotels, ...supplierBHotels].map((h) => h.city.toLowerCase())),
+      ...cfg.WARMUP_CITIES,
+    ];
+    const llm = createToolCaller(cfg);
+    const parsers: QueryParser[] = [
+      ...(llm ? [new LlmQueryParser(llm)] : []),
+      new RulesQueryParser([...new Set(knownCities)]),
+    ];
+    deps.askService = new AskService(parsers, hotelService, redis);
+    logger.info(
+      { provider: cfg.LLM_PROVIDER, model: llm?.model },
+      'natural-language search enabled',
+    );
   }
 
   if (cfg.FEATURE_WARMUP) {

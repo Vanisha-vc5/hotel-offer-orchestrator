@@ -12,6 +12,7 @@ import { createApp } from '../../src/api/app';
 import type { AppDeps } from '../../src/api/app';
 import { HealthService } from '../../src/api/services/healthService';
 import { HotelService } from '../../src/api/services/hotelService';
+import { AskService, RulesQueryParser } from '../../src/api/services/askService';
 import type { WorkflowRunner } from '../../src/api/services/hotelService';
 import { selectBestOffers } from '../../src/domain/selectBestOffers';
 import type { SupplierHotel, SupplierId, SuppliersStatus } from '../../src/domain/types';
@@ -171,6 +172,13 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
       await monitorStore.resetCircuits();
       monitorControl.resets++;
     });
+  }
+  if (cfg.FEATURE_ASK) {
+    deps.askService = new AskService(
+      [new RulesQueryParser(['delhi', 'mumbai', 'bangalore', 'goa', 'jaipur'])],
+      deps.hotelService,
+      redis,
+    );
   }
   if (cfg.FEATURE_WARMUP) {
     deps.adminExtensions?.push(

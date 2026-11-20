@@ -4,7 +4,7 @@ import type { Client, ScheduleOptionsStartWorkflowAction } from '@temporalio/cli
 import type { Config } from '../infra/config';
 import { logger } from '../infra/logger';
 import { tuningFromConfig } from './client';
-import { TASK_QUEUE, WARMUP_SCHEDULE_ID, WARMUP_WORKFLOW_ID } from './shared';
+import { TASK_QUEUE, WARMUP_SCHEDULE_ID, WARMUP_WORKFLOW_ID, workflowIdForCity } from './shared';
 import type { WarmupInput, WarmupResult } from './shared';
 import type { cacheWarmupWorkflow } from './workflows';
 
@@ -146,5 +146,25 @@ export async function runWarmupNow(
     taken = (await handle.describe()).info.numActionsTaken > before;
     if (!taken) await sleep(100);
   }
-  return { triggered: taken, run: await lastRun(client, taken ? timeoutMs : 0) };
+  // Skipped by SKIP → the latest action is the overlapping run; wait for it instead.
+  const started = Date.now();
+  const run = await lastRun(client, timeoutMs);
+
+  // A `coalesced` city is being refreshed by a run that was already in flight (a user
+  // request or an earlier tick). Wait for it too, so that when run-now returns every
+  // warm-up city's cache is actually fresh.
+  const coalesced = run?.results?.filter((r) => r.status === 'coalesced') ?? [];
+  const remaining = Math.max(0, timeoutMs - (Date.now() - started));
+  await Promise.race([
+    Promise.all(
+      coalesced.map((r) =>
+        client.workflow
+          .getHandle(workflowIdForCity(r.city))
+          .result()
+          .catch(() => undefined),
+      ),
+    ),
+    sleep(remaining),
+  ]);
+  return { triggered: taken, run };
 }

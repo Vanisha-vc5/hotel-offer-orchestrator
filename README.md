@@ -142,6 +142,10 @@ sequenceDiagram
   refreshes `delhi`, `mumbai` and `bangalore` through child `hotelOffersWorkflow`s that use the same IDs as user
   requests, so warm-ups and user traffic coalesce. Filtered requests for those cities are almost always
   `X-Cache: HIT`.
+- ⭐ **Natural-language search.** `POST /api/hotels/ask` turns "cheap hotels in delhi under 6k" into
+  `{city, minPrice, maxPrice}`. It uses an LLM when one is configured (Anthropic or any OpenAI-compatible
+  endpoint, forced tool call, zod-validated, 5 s timeout), with a deterministic rules parser as the fallback. Results
+  come from the same service as `GET /api/hotels`.
 - ⭐ **Chaos engineering.** Each supplier can be set to `down`, `slow` or `flaky` over HTTP, with state shared through Redis.
 - `/health` probes both suppliers, Redis and Temporal in parallel with real latency and reports `up`, `degraded`
   or `down`. There are also `/health/live` and `/health/ready`.
@@ -314,6 +318,70 @@ runs the workflow first. Its response is separate from the graded contract, so i
     "temporal": { "status": "up", "latencyMs": 6 }
   }
 }
+```
+
+### `POST /api/hotels/ask` (natural-language search)
+
+This is a new endpoint, so it uses an envelope. `results` keeps the exact 4-key offer shape and comes from
+the **same** `HotelService` functions as `GET /api/hotels`, so dedupe, the cache and Redis
+filtering are reused.
+
+```bash
+curl -X POST localhost:3000/api/hotels/ask -H 'content-type: application/json' \
+  -d '{"query":"cheap hotels in delhi under 6k"}'
+```
+
+```json
+{
+  "query": "cheap hotels in delhi under 6k",
+  "interpretedAs": { "city": "delhi", "minPrice": null, "maxPrice": 6000 },
+  "parser": "rules",
+  "results": [{ "name": "Ibis", "price": 2900, "supplier": "Supplier B", "commissionPct": 9 }]
+}
+```
+
+(The real response has four results; one is shown.) These come from a real run with `LLM_PROVIDER=none`,
+which uses the rules parser:
+
+| Query                                        | Interpreted as               | Results                                               |
+| -------------------------------------------- | ---------------------------- | ----------------------------------------------------- |
+| `cheap hotels in delhi under 6k`             | delhi, max 6000              | Ibis 2900, Lemon Tree 3200, Holtin 5340, Radison 5900 |
+| `hotels in Mumbai between ₹5,000 and ₹9,000` | mumbai, 5000–9000            | Holiday Inn 6400, Sea Princess 7300                   |
+| `luxury stays in goa above 10k`              | goa, min 10000               | Taj Exotica 14200                                     |
+| `Bengaluru 2k-4k`                            | bangalore (alias), 2000–4000 | Fab Hotel 2100, Lemon Tree 3500                       |
+
+**Parser chain.** The first available parser that succeeds wins:
+
+1. **The LLM** (`LLM_PROVIDER`). It makes a forced tool call (`extract_filters`, strict
+   JSON schema) and the output is validated with zod.
+2. **The rules parser** handles under/below/max, over/above/min, "between X and Y", "X-Y", "X to Y", "6k" and
+   "₹6,000", plus city detection with aliases (Bengaluru, Bombay, New Delhi).
+
+An LLM error, a timeout, invalid output, or an invalid city all fall back to rules. No city at all gives **422**
+`UNPROCESSABLE_QUERY`, with example queries in `details`. Interpretations are cached in Redis
+by query hash for an hour (`X-Parser-Cache: HIT`).
+
+**Safety measures:**
+
+- The query is limited to 300 characters.
+- It is passed to the model inside `<query>` tags as _data_, and the system prompt tells the model never
+  to follow instructions in it.
+- The LLM's city still has to pass the normal `city` validation before it can reach a Redis key or a
+  workflow ID.
+- The endpoint sits under `/api`, so the existing rate limit applies.
+
+**Enabling a provider** (in `.env`, then restart `api`):
+
+```dotenv
+# Anthropic (official @anthropic-ai/sdk). LLM_MODEL defaults to claude-haiku-4-5.
+LLM_PROVIDER=anthropic
+LLM_API_KEY=sk-ant-...          # or leave empty and set ANTHROPIC_API_KEY
+
+# Any OpenAI-compatible endpoint (Groq, OpenRouter, local Ollama, ...)
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=https://api.groq.com/openai/v1     # Ollama: http://host.docker.internal:11434/v1
+LLM_MODEL=llama-3.1-8b-instant
+LLM_API_KEY=gsk_...
 ```
 
 ### Mock suppliers
@@ -567,6 +635,10 @@ list of every problem. Compose reads `.env`; `.env.example` has the defaults.
 | `CIRCUIT_FAILURE_THRESHOLD` / `CIRCUIT_COOLDOWN`                                     | `3` / `30s`                              | consecutive failed probes to open; time before a half-open probe                                         |
 | `FEATURE_WARMUP`                                                                     | `true`                                   | `cache-warmup` Temporal Schedule (deleted when `false`)                                                  |
 | `WARMUP_CITIES` / `WARMUP_INTERVAL`                                                  | `delhi,mumbai,bangalore` / `2m`          | cities refreshed on each tick, and tick interval                                                         |
+| `FEATURE_ASK`                                                                        | `true`                                   | `POST /api/hotels/ask` natural-language search                                                           |
+| `LLM_PROVIDER`                                                                       | `none`                                   | `none` (rules parser only), `anthropic` or `openai-compatible`                                           |
+| `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL`                                         | `claude-haiku-4-5` (anthropic) / – / –   | model, key and base URL (base URL and model required for openai-compatible)                              |
+| `LLM_TIMEOUT_MS`                                                                     | `5000`                                   | per-call LLM timeout; on timeout the rules parser answers                                                |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD`                                                | `temporal` / `temporal`                  | compose only (Temporal persistence)                                                                      |
 | `API_HOST_PORT` / `REDIS_HOST_PORT` / `TEMPORAL_HOST_PORT` / `TEMPORAL_UI_HOST_PORT` | `3000` / `6379` / `7233` / `8080`        | compose host bindings; can be `127.0.0.1:PORT`                                                           |
 
