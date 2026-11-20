@@ -112,6 +112,9 @@ const EnvSchema = z.object({
   LLM_BASE_URL: z.string().url().optional(),
   LLM_TIMEOUT_MS: ms.default(5_000),
 
+  /** Enhancement 6: report-only near-duplicate detection in insights. */
+  FEATURE_DUPLICATES: bool.default(true),
+
   // Chaos / admin
   ENABLE_CHAOS: bool.default(true),
   /** Enhancement 5: production refuses to start without a strong ADMIN_TOKEN. */

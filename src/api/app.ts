@@ -17,6 +17,7 @@ import { openApiDocument } from './openapi';
 import { adminRouter } from './routes/admin.routes';
 import { askRouter } from './routes/ask.routes';
 import type { AskService } from './services/askService';
+import type { DuplicateService } from './services/duplicateService';
 import type { AdminDeps } from './routes/admin.routes';
 import { healthRouter } from './routes/health.routes';
 import { hotelsRouter } from './routes/hotels.routes';
@@ -39,6 +40,8 @@ export interface AppDeps {
   circuitHeader?: () => Promise<string>;
   /** FEATURE_ASK: natural-language search. */
   askService?: AskService;
+  /** FEATURE_DUPLICATES: report-only near-duplicates in insights. */
+  duplicateService?: DuplicateService;
 }
 
 /** Builds the Express app from injected dependencies (exported for supertest). */
@@ -89,6 +92,7 @@ export function createApp(deps: AppDeps): Express {
       allowCoalescingOverride: cfg.FEATURE_BENCHMARK,
       adminToken: cfg.ADMIN_TOKEN,
       circuitHeader: deps.circuitHeader,
+      duplicates: deps.duplicateService,
     }),
   );
   if (deps.askService) app.use('/api', askRouter(deps.askService));

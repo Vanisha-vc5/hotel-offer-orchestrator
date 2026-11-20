@@ -23,7 +23,13 @@ export default tseslint.config(
   },
   {
     // The workflow sandbox must stay deterministic: no Node built-ins, no I/O.
-    files: ['src/domain/selectBestOffers.ts', 'src/temporal/workflows/**/*.ts'],
+    files: [
+      'src/domain/selectBestOffers.ts',
+      'src/domain/similarity.ts',
+      'src/domain/duplicates.ts',
+      'src/domain/circuit.ts',
+      'src/temporal/workflows/**/*.ts',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',

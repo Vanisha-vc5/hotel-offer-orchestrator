@@ -146,6 +146,10 @@ sequenceDiagram
   `{city, minPrice, maxPrice}`. It uses an LLM when one is configured (Anthropic or any OpenAI-compatible
   endpoint, forced tool call, zod-validated, 5 s timeout), with a deterministic rules parser as the fallback. Results
   come from the same service as `GET /api/hotels`.
+- ⭐ **AI-assisted duplicate detection (report-only).** Insights adds `possibleDuplicates`, near-duplicate
+  listings across suppliers such as "Radisson Blu" and "Radison Blu", or "The Leela Palace" and "Leela Palace". It
+  uses hand-written Jaro-Winkler and token-set similarity with mutual-best matching, plus an LLM judge activity
+  for ambiguous pairs.
 - ⭐ **Chaos engineering.** Each supplier can be set to `down`, `slow` or `flaky` over HTTP, with state shared through Redis.
 - `/health` probes both suppliers, Redis and Temporal in parallel with real latency and reports `up`, `degraded`
   or `down`. There are also `/health/live` and `/health/ready`.
@@ -538,6 +542,27 @@ test can't leave partial data behind.
 _Screenshot placeholder: open <http://localhost:8080/namespaces/default/schedules/cache-warmup> and save it as
 `docs/images/temporal-schedule.png`._
 
+**Near-duplicate detection is report-only.** Suppliers name the same property differently ("Radisson Blu" vs
+"Radison Blu", "The Leela Palace" vs "Leela Palace"). The graded endpoint still dedupes by **exact normalized
+name**, as required. `duplicateReviewWorkflow` only **reports** likely duplicates in
+`GET /api/hotels/insights` → `possibleDuplicates`:
+
+- **Scoring:** `domain/similarity.ts` (hand-written Jaro-Winkler and token-set similarity; punctuation,
+  stop-words such as "the", "hotel" and "resort", and the city name are normalized away) scores pairs from
+  _different_ suppliers whose normalized names differ.
+- **Mutual best match:** a pair is kept only when each listing is the other's best match, so "The Leela Palace"
+  isn't also paired with "Pearl Palace" at 0.79.
+- **≥ 0.92:** reported as `likely_same`, decided by `similarity`.
+- **0.75–0.92:** an **LLM judge activity** decides `likely_same`, `different` or `uncertain`, with a one-line
+  reason. It's an activity, never workflow code, because model output is non-deterministic. With no LLM
+  configured, the pair is reported `uncertain`, decided by `similarity`.
+- **Below 0.75:** ignored.
+
+The review is cached in the city's Redis meta (written only while that meta exists) and disappears on the next
+refresh, so it never describes stale data. Merging automatically would be risky, because a wrong merge hides a
+real hotel or misprices one. A production system would use shared property IDs (supplier mapping, GIATA-style
+codes) or a mapping service with human review. This feature surfaces candidates for that process.
+
 **No envelope in the response.** The contract asks for a bare array, and keeping metadata in headers makes
 the body exactly the domain data. Clients can `JSON.parse` it straight into a list, and HTTP caches and
 intermediaries handle it naturally. The body is built with an explicit 4-key projection, so internal fields
@@ -639,6 +664,7 @@ list of every problem. Compose reads `.env`; `.env.example` has the defaults.
 | `LLM_PROVIDER`                                                                       | `none`                                   | `none` (rules parser only), `anthropic` or `openai-compatible`                                           |
 | `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL`                                         | `claude-haiku-4-5` (anthropic) / – / –   | model, key and base URL (base URL and model required for openai-compatible)                              |
 | `LLM_TIMEOUT_MS`                                                                     | `5000`                                   | per-call LLM timeout; on timeout the rules parser answers                                                |
+| `FEATURE_DUPLICATES`                                                                 | `true`                                   | `possibleDuplicates` in insights (report-only); ambiguous pairs use the LLM when configured              |
 | `REQUIRE_ADMIN_TOKEN`                                                                | `false` (prod override: `true`)          | refuse to start without a 16+ character `ADMIN_TOKEN`                                                    |
 | `PUBLIC_DOMAIN`                                                                      | –                                        | hostname Caddy serves and gets a certificate for (prod override only)                                    |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD`                                                | `temporal` / `temporal`                  | compose only (Temporal persistence)                                                                      |

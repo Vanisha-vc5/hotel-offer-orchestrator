@@ -19,6 +19,8 @@ import { supplierAHotels } from '../mocks/supplierA.data';
 import { supplierBHotels } from '../mocks/supplierB.data';
 import { AskService, LlmQueryParser, RulesQueryParser } from './services/askService';
 import type { QueryParser } from './services/askService';
+import { DuplicateService } from './services/duplicateService';
+import { runDuplicateReview } from '../temporal/duplicateClient';
 import { runWarmupNow, warmupStatus } from '../temporal/warmupClient';
 import { HealthService } from './services/healthService';
 import { HotelService } from './services/hotelService';
@@ -88,6 +90,12 @@ function buildDeps(cfg: Config): AppDeps {
     logger.info(
       { provider: cfg.LLM_PROVIDER, model: llm?.model },
       'natural-language search enabled',
+    );
+  }
+
+  if (cfg.FEATURE_DUPLICATES) {
+    deps.duplicateService = new DuplicateService(repository, async (city) =>
+      runDuplicateReview(await getTemporalClient(), city, cfg),
     );
   }
 

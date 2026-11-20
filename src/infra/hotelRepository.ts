@@ -1,6 +1,7 @@
 import type { Redis } from 'ioredis';
 import { RedisUnavailableError } from '../domain/errors';
 import { normalizeName } from '../domain/selectBestOffers';
+import type { PossibleDuplicate } from '../domain/duplicates';
 import type { Decision, HotelOffer, ResultStatus } from '../domain/types';
 import type { PersistPayload } from '../temporal/shared';
 import { formatSuppliersStatus } from '../temporal/shared';
@@ -62,6 +63,9 @@ function toMeta(values: ReadonlyArray<string | null | undefined>): CityMeta {
 function toStoredOffer(o: HotelOffer): HotelOffer {
   return { name: o.name, price: o.price, supplier: o.supplier, commissionPct: o.commissionPct };
 }
+
+const HSET_IF_EXISTS =
+  "if redis.call('EXISTS', KEYS[1]) == 1 then return redis.call('HSET', KEYS[1], ARGV[1], ARGV[2]) end return -1";
 
 async function guard<T>(op: string, fn: () => Promise<T>): Promise<T> {
   try {
@@ -153,6 +157,32 @@ export class HotelRepository {
       meta: toMeta(META_FIELDS.map((f) => raw[f])),
       decisions: raw.decisions ? (JSON.parse(raw.decisions) as Decision[]) : [],
     };
+  }
+
+  /** Enhancement 6: cached duplicate review for the city's current data, or null. */
+  async getPossibleDuplicates(city: string): Promise<PossibleDuplicate[] | null> {
+    const raw = await guard('getPossibleDuplicates', () =>
+      this.redis.hget(cityKeys(city).meta, 'possibleDuplicates'),
+    );
+    return raw ? (JSON.parse(raw) as PossibleDuplicate[]) : null;
+  }
+
+  /**
+   * Stores the review in the city's meta hash ONLY if that meta still exists
+   * (one atomic script). Creating meta here would fake a cache HIT. The review
+   * disappears with the meta on the next refresh, so it never outlives its data.
+   */
+  async savePossibleDuplicates(city: string, review: PossibleDuplicate[]): Promise<boolean> {
+    const result = await guard('savePossibleDuplicates', () =>
+      this.redis.eval(
+        HSET_IF_EXISTS,
+        1,
+        cityKeys(city).meta,
+        'possibleDuplicates',
+        JSON.stringify(review),
+      ),
+    );
+    return result !== -1;
   }
 
   async ttl(city: string): Promise<number> {

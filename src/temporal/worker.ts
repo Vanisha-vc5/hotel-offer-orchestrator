@@ -10,6 +10,7 @@ import { closeRedis, getRedis } from '../infra/redis';
 import { retryWithBackoff } from '../infra/retry';
 import { HotelRepository } from '../infra/hotelRepository';
 import { MonitorStore } from '../infra/monitorStore';
+import { createToolCaller } from '../infra/llm';
 import { ensureMonitors, stopMonitors } from './monitorClient';
 import { deleteWarmupSchedule, ensureWarmupSchedule } from './warmupClient';
 import { createActivities } from './activities';
@@ -67,7 +68,12 @@ async function main(): Promise<void> {
     connection,
     namespace: cfg.TEMPORAL_NAMESPACE,
     taskQueue: TASK_QUEUE,
-    activities: createActivities({ repository, cfg, monitorStore }),
+    activities: createActivities({
+      repository,
+      cfg,
+      monitorStore,
+      toolCaller: createToolCaller(cfg),
+    }),
     ...workflowSource(),
   });
 

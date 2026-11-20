@@ -30,4 +30,12 @@ export const supplierAHotels: SupplierHotel[] = [
   { hotelId: 'a30', name: 'Taj Exotica', price: 14200, city: 'goa', commissionPct: 15 },
   { hotelId: 'a31', name: 'Novotel', price: 7800, city: 'goa', commissionPct: 11 },
   { hotelId: 'a32', name: 'Zostel', price: 1500, city: 'goa', commissionPct: 5 },
+
+  // jaipur (Enhancement 6) — near-duplicates of Supplier B names, for duplicate detection
+  { hotelId: 'a40', name: 'Radisson Blu', price: 7200, city: 'jaipur', commissionPct: 14 },
+  { hotelId: 'a41', name: 'The Leela Palace', price: 15500, city: 'jaipur', commissionPct: 15 },
+  { hotelId: 'a42', name: 'Taj Rambagh Palace', price: 24000, city: 'jaipur', commissionPct: 18 },
+  { hotelId: 'a43', name: 'ITC Rajputana', price: 9800, city: 'jaipur', commissionPct: 12 },
+  { hotelId: 'a44', name: 'Hotel Pearl Palace', price: 2600, city: 'jaipur', commissionPct: 8 },
+  { hotelId: 'a45', name: 'Fairmont Jaipur', price: 13000, city: 'jaipur', commissionPct: 14 },
 ];

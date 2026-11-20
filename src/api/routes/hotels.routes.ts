@@ -4,6 +4,7 @@ import { buildInsights } from '../../domain/insights';
 import type { HotelOffer } from '../../domain/types';
 import { isTrustedOperator } from '../middleware/operatorAuth';
 import { elapsedMs } from '../middleware/requestId';
+import type { DuplicateService } from '../services/duplicateService';
 import type { HotelService, OffersResult } from '../services/hotelService';
 import { HotelsQuerySchema, InsightsQuerySchema } from '../validation';
 
@@ -29,6 +30,8 @@ export interface HotelsRouterOptions {
   adminToken?: string;
   /** FEATURE_MONITOR: value for the X-Circuit-State header, e.g. `A=closed;B=open`. */
   circuitHeader?: () => Promise<string>;
+  /** FEATURE_DUPLICATES: adds `possibleDuplicates` to insights. */
+  duplicates?: DuplicateService;
 }
 
 export function hotelsRouter(service: HotelService, opts: HotelsRouterOptions): Router {
@@ -87,6 +90,15 @@ export function hotelsRouter(service: HotelService, opts: HotelsRouterOptions): 
       requestId: req.requestId,
     });
     const report = buildInsights(decisions);
+    let possibleDuplicates: unknown;
+    if (opts.duplicates) {
+      try {
+        possibleDuplicates = await opts.duplicates.get(city);
+      } catch (err) {
+        // Report-only feature: never fail insights because the review is unavailable.
+        req.log.warn({ err: (err as Error).message, city }, 'duplicate review unavailable');
+      }
+    }
 
     res.setHeader('X-Cache', cache);
     res.setHeader('X-Workflow-Id', meta.workflowId);
@@ -99,6 +111,7 @@ export function hotelsRouter(service: HotelService, opts: HotelsRouterOptions): 
       resultStatus: meta.resultStatus,
       suppliersStatus: meta.suppliersStatus,
       ...report,
+      ...(possibleDuplicates !== undefined ? { possibleDuplicates } : {}),
     });
   });
 

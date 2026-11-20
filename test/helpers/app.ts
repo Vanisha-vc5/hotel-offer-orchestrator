@@ -13,6 +13,13 @@ import type { AppDeps } from '../../src/api/app';
 import { HealthService } from '../../src/api/services/healthService';
 import { HotelService } from '../../src/api/services/hotelService';
 import { AskService, RulesQueryParser } from '../../src/api/services/askService';
+import { DuplicateService } from '../../src/api/services/duplicateService';
+import {
+  findDuplicatePairs,
+  LIKELY_SAME_THRESHOLD,
+  similarityVerdict,
+  withVerdict,
+} from '../../src/domain/duplicates';
 import type { WorkflowRunner } from '../../src/api/services/hotelService';
 import { selectBestOffers } from '../../src/domain/selectBestOffers';
 import type { SupplierHotel, SupplierId, SuppliersStatus } from '../../src/domain/types';
@@ -105,6 +112,7 @@ export interface TestApp {
   /** Fake Temporal control plane for the monitor workflows. */
   monitorControl: { probeCalls: number; resets: number };
   warmupControl: { runs: number };
+  duplicateReviews: { runs: number };
   close(): Promise<void>;
 }
 
@@ -135,6 +143,7 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
   const monitorStore = new MonitorStore(redis);
   const monitorControl = { probeCalls: 0, resets: 0 };
   const warmupControl = { runs: 0 };
+  const duplicateReviews = { runs: 0 };
   const deps: AppDeps = {
     cfg,
     repository,
@@ -180,6 +189,20 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
       redis,
     );
   }
+  if (cfg.FEATURE_DUPLICATES) {
+    // Same steps as duplicateReviewWorkflow, run in-process with no LLM configured.
+    deps.duplicateService = new DuplicateService(repository, async (city) => {
+      duplicateReviews.runs++;
+      const decisions = (await repository.getInsightsSource(city))?.decisions ?? [];
+      const review = findDuplicatePairs(decisions, city).map((p) =>
+        p.similarity >= LIKELY_SAME_THRESHOLD
+          ? similarityVerdict(p)
+          : withVerdict(p, 'uncertain', 'similarity', 'No LLM configured'),
+      );
+      await repository.savePossibleDuplicates(city, review);
+      return review;
+    });
+  }
   if (cfg.FEATURE_WARMUP) {
     deps.adminExtensions?.push(
       warmupAdminRoutes({
@@ -211,6 +234,7 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
     monitorStore,
     monitorControl,
     warmupControl,
+    duplicateReviews,
     async close() {
       await monitorStore.resetCircuits();
       await chaos.reset();

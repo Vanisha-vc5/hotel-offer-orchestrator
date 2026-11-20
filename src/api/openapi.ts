@@ -277,6 +277,17 @@ export const openApiDocument = {
                       ],
                     },
                   ],
+                  possibleDuplicates: [
+                    {
+                      a: { name: 'Radisson Blu', supplier: 'Supplier A', price: 7200 },
+                      b: { name: 'Radison Blu', supplier: 'Supplier B', price: 6900 },
+                      similarity: 1,
+                      verdict: 'likely_same',
+                      decidedBy: 'similarity',
+                      reason: 'Names match after normalization (similarity 1.00)',
+                      potentialSavings: 300,
+                    },
+                  ],
                 },
               },
             },

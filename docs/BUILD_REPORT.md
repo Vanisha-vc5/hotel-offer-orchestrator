@@ -438,3 +438,69 @@ npm test                                     → all passing (new config tests i
 
 The dev stack was restored afterwards with `docker compose up -d --remove-orphans`. The actual VM steps are left
 for the owner to run; the exact commands are in `docs/DEPLOYMENT.md` §3.
+
+## Enhancement 6: AI-assisted duplicate detection (insights only)
+
+**What was added (`FEATURE_DUPLICATES`, default `true`)**
+
+- **A new city, `jaipur`** (only rows appended; no existing city touched). It has deliberate cross-supplier
+  near-duplicates:
+  - a typo: "Radisson Blu" vs "Radison Blu"
+  - a stop-word: "The Leela Palace" vs "Leela Palace"
+  - a prefix: "Hotel Pearl Palace" vs "Pearl Palace"
+  - a look-alike that isn't a duplicate: "Taj Rambagh Palace" vs "Taj Jai Mahal Palace"
+  - an exact match the normal dedupe merges: ITC Rajputana
+- **`domain/similarity.ts`** (pure, no dependencies): hand-written Jaro and Jaro-Winkler, token-set similarity
+  with fuzzy token matching, and normalization that strips diacritics, punctuation, stop-words and the city name.
+- **`domain/duplicates.ts`** (pure): cross-supplier candidate pairs with a **mutual best match** filter,
+  thresholds 0.92 and 0.75, verdict helpers, and `potentialSavings`.
+- **`duplicateReviewWorkflow(city)`** loads the decisions, scores pairs in workflow code, sends 0.75–0.92 pairs to a
+  `judgeDuplicate` **activity** (the LLM through the Enhancement 4 `ToolCaller`, a forced tool, a strict enum
+  schema and zod), and saves the review. With no LLM, or on an LLM error, the verdict is `uncertain` decided by
+  `similarity`. The workflow ID is `duplicate-review-<city>` with `USE_EXISTING`.
+- **Repository:** `savePossibleDuplicates` writes through a one-line Lua script that runs `HSET` **only if the
+  city's meta exists**.
+- **Insights:** a new `possibleDuplicates` field, from Redis meta or reviewed on demand. All existing fields are
+  unchanged. A failed review never fails insights.
+- **Tests:**
+  - similarity unit tests (textbook Jaro-Winkler values, normalization, token-set, known pairs, exactly 4 jaipur
+    pairs, none for the original cities, savings)
+  - a time-skipping workflow test with a mocked LLM activity (3 `likely_same` by similarity, 1 `different` by the
+    LLM; only the ambiguous pair reaches the LLM)
+  - 5 integration tests, including the guarded meta write and flag off
+  - Postman folder "14. Possible duplicates": jaipur has a `likely_same` pair with `LLM_PROVIDER=none`, and the
+    main endpoint does **not** merge near-duplicates
+
+**Decisions**
+
+- **Report-only.** The graded endpoint still dedupes by exact normalized name. Automatic merging could hide or
+  misprice a real hotel; production would use shared property IDs or a mapping service.
+- **The city name is a stop-word for scoring,** so "Fairmont Jaipur" vs "Trident Jaipur" doesn't look similar
+  just because both contain "jaipur".
+- **The review lives in the city's meta hash,** so it's deleted with the meta on every refresh and never
+  describes stale data.
+
+**Problems found and fixed**
+
+- **False positives:** "The Leela Palace" vs "Pearl Palace" (and the reverse) scored 0.789 because of the shared
+  "palace" suffix, which put them in the LLM band. I added mutual-best-match filtering; now exactly the 4
+  intended pairs are reported, and none for delhi, mumbai, bangalore or goa.
+- **A cache-integrity hazard:** a plain `HSET` on an expired meta key would create a meta hash with no data,
+  which `filterByPrice.lua` would treat as a cache HIT (an empty result). The guarded Lua write prevents this,
+  and an integration test covers it.
+- Twice, bash couldn't parse a large combined command (unmatched quotes in a heredoc). I moved the edits into
+  script files written with the Write tool.
+
+**Verification**
+
+```
+npm run lint && npm run typecheck && npm test   → Test Files 22 passed, Tests 190 passed
+docker compose up --build -d                     → all 6 services healthy
+newman run #1 / #2                               → 59 requests, 144 assertions, 0 failed
+live (real Temporal duplicateReviewWorkflow, jaipur):
+  1.00 likely_same similarity  Hotel Pearl Palace | Pearl Palace      (save 100)
+  1.00 likely_same similarity  Radisson Blu | Radison Blu             (save 300)
+  1.00 likely_same similarity  The Leela Palace | Leela Palace        (save 400)
+  0.87 uncertain   similarity  Taj Rambagh Palace | Taj Jai Mahal Palace (LLM band, no LLM configured)
+contract guard                                   → passing
+```

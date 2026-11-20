@@ -2403,6 +2403,115 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "14. Possible duplicates",
+      "description": "Enhancement 6: report-only near-duplicate detection (works with LLM_PROVIDER=none).",
+      "item": [
+        {
+          "name": "insights jaipur -> possibleDuplicates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('existing insights fields unchanged', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body).to.include.keys('city', 'summary', 'hotels', 'resultStatus');",
+                  "});",
+                  "pm.test('at least one likely_same pair with the documented shape', function () {",
+                  "  const likely = body.possibleDuplicates.filter(function (d) { return d.verdict === 'likely_same'; });",
+                  "  pm.expect(likely.length).to.be.at.least(1);",
+                  "  likely.forEach(function (d) {",
+                  "    pm.expect(d).to.have.all.keys('a', 'b', 'similarity', 'verdict', 'decidedBy', 'reason', 'potentialSavings');",
+                  "    pm.expect(d.a.supplier).to.not.eql(d.b.supplier);",
+                  "    pm.expect(d.similarity).to.be.at.least(0.92);",
+                  "  });",
+                  "});",
+                  "pm.test('Radisson Blu / Radison Blu reported as likely_same', function () {",
+                  "  const r = body.possibleDuplicates.find(function (d) { return d.a.name === 'Radisson Blu'; });",
+                  "  pm.expect(r.b.name).to.eql('Radison Blu');",
+                  "  pm.expect(r.verdict).to.eql('likely_same');",
+                  "  pm.expect(r.potentialSavings).to.eql(300);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels/insights?city=jaipur&refresh=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels", "insights"],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "jaipur"
+                },
+                {
+                  "key": "refresh",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "main endpoint still dedupes by exact name only",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('200 and a bare JSON array (no envelope)', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body).to.be.an('array');",
+                  "});",
+                  "pm.test('every item has exactly name, price, supplier, commissionPct', function () {",
+                  "  body.forEach(function (h) {",
+                  "    pm.expect(Object.keys(h).sort()).to.eql(['commissionPct', 'name', 'price', 'supplier']);",
+                  "    pm.expect(['Supplier A', 'Supplier B']).to.include(h.supplier);",
+                  "  });",
+                  "});",
+                  "pm.test('sorted by price ascending', function () {",
+                  "  for (let i = 1; i < body.length; i++) pm.expect(body[i].price).to.be.at.least(body[i - 1].price);",
+                  "});",
+                  "",
+                  "pm.test('near-duplicates are NOT merged (report-only), exact matches are', function () {",
+                  "  const names = body.map(function (h) { return h.name; });",
+                  "  pm.expect(names).to.include.members(['Radisson Blu', 'Radison Blu']);",
+                  "  pm.expect(names.filter(function (n) { return n === 'ITC Rajputana'; })).to.have.lengthOf(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=jaipur",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "jaipur"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }
