@@ -28,3 +28,17 @@ export function elapsedMs(req: Request): string {
   const ns = process.hrtime.bigint() - req.startedAt;
   return `${(Number(ns) / 1e6).toFixed(1)}ms`;
 }
+
+/**
+ * Stamps X-Response-Time on every response (including errors) just before the
+ * headers are flushed. Routes may set it earlier; an existing value is kept.
+ */
+export function responseTime(req: Request, res: Response, next: NextFunction): void {
+  const writeHead = res.writeHead;
+  // writeHead has several overloads; we forward the original arguments untouched.
+  res.writeHead = function patchedWriteHead(this: Response, ...args: unknown[]) {
+    if (!res.getHeader('X-Response-Time')) res.setHeader('X-Response-Time', elapsedMs(req));
+    return (writeHead as (...a: unknown[]) => Response).apply(this, args);
+  } as Response['writeHead'];
+  next();
+}

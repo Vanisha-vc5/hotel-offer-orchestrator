@@ -1,28 +1,56 @@
 import type { Server } from 'node:http';
-import { createApp } from './app';
-import { config, ConfigError, loadConfig } from '../infra/config';
+import { ConfigError, config, loadConfig } from '../infra/config';
+import type { Config } from '../infra/config';
+import { HotelRepository } from '../infra/hotelRepository';
 import { logger } from '../infra/logger';
 import { closeRedis, getRedis } from '../infra/redis';
 import { ChaosStore } from '../mocks/chaos';
+import { closeTemporalClient, getTemporalClient, runHotelOffersWorkflow } from '../temporal/client';
+import { createApp } from './app';
+import { HealthService } from './services/healthService';
+import { HotelService } from './services/hotelService';
+
+function buildDeps(cfg: Config): Parameters<typeof createApp>[0] {
+  const redis = getRedis();
+  const repository = new HotelRepository(redis);
+
+  const hotelService = new HotelService(async (input) => {
+    const client = await getTemporalClient();
+    return runHotelOffersWorkflow(client, input, cfg);
+  }, repository);
+
+  const healthService = new HealthService(cfg, repository, async (deadlineMs) => {
+    const client = await getTemporalClient();
+    await client.connection.withDeadline(Date.now() + deadlineMs, () =>
+      client.connection.workflowService.getSystemInfo({}),
+    );
+  });
+
+  return { cfg, repository, hotelService, healthService, chaos: new ChaosStore(redis) };
+}
 
 async function main(): Promise<void> {
   const cfg = config();
-  const app = createApp({ chaos: new ChaosStore(getRedis()) });
+  const deps = buildDeps(cfg);
+  const app = createApp(deps);
   const server: Server = app.listen(cfg.PORT, () => {
     logger.info({ port: cfg.PORT, env: cfg.NODE_ENV }, 'api listening');
   });
-  installShutdown(server, cfg.SHUTDOWN_TIMEOUT_MS);
+  // Warm the Temporal connection; failures are retried lazily per request.
+  getTemporalClient().catch(() => undefined);
+  installShutdown(server, cfg.SHUTDOWN_TIMEOUT_MS, () => deps.healthService.markShuttingDown());
 }
 
 /**
- * Graceful shutdown: stop accepting connections, let in-flight requests drain
- * (bounded by SHUTDOWN_TIMEOUT_MS), then close Redis and Temporal.
+ * Graceful shutdown: fail readiness, stop accepting connections, let in-flight
+ * requests drain (bounded by SHUTDOWN_TIMEOUT_MS), then close Temporal and Redis.
  */
-function installShutdown(server: Server, timeoutMs: number): void {
+function installShutdown(server: Server, timeoutMs: number, onStart: () => void): void {
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
+    onStart();
     logger.info({ signal }, 'shutdown started: draining in-flight requests');
 
     const forceTimer = setTimeout(() => {
@@ -37,6 +65,7 @@ function installShutdown(server: Server, timeoutMs: number): void {
     });
     clearTimeout(forceTimer);
 
+    await closeTemporalClient();
     await closeRedis();
     logger.info('shutdown complete');
     logger.flush();

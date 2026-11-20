@@ -57,7 +57,7 @@ export const HotelsQuerySchema = z
   });
 export type HotelsQuery = z.infer<typeof HotelsQuerySchema>;
 
-export const InsightsQuerySchema = z.object({ city: CitySchema }).strict();
+export const InsightsQuerySchema = z.object({ city: CitySchema, refresh: BoolFlag }).strict();
 
 export const CityParamSchema = z.object({ city: CitySchema });
 
