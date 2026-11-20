@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ops Console · Hotel Offer Orchestrator</title>
+    <link rel="stylesheet" href="/console/console.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">◆</span>
+        <div>
+          <h1>Hotel Offer Orchestrator</h1>
+          <p class="sub">Ops console · Temporal · Redis · chaos</p>
+        </div>
+      </div>
+      <div class="overall" id="overall" aria-live="polite">
+        <span class="dot"></span><span id="overall-text">checking…</span>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card span-2" aria-labelledby="search-h">
+        <h2 id="search-h">Search</h2>
+        <form id="search-form" class="row">
+          <label>City <input name="city" value="delhi" required maxlength="50" /></label>
+          <label>Min price <input name="minPrice" type="number" min="0" placeholder="any" /></label>
+          <label>Max price <input name="maxPrice" type="number" min="0" placeholder="any" /></label>
+          <label class="check"><input name="refresh" type="checkbox" /> refresh</label>
+          <button type="submit" class="primary">Search</button>
+        </form>
+        <div id="search-meta" class="chips"></div>
+        <div id="search-results"></div>
+      </section>
+
+      <section class="card" aria-labelledby="health-h">
+        <h2 id="health-h">Supplier health <span class="muted small">auto-refresh 5s</span></h2>
+        <div class="tiles" id="health-tiles"></div>
+        <div class="chips" id="health-deps"></div>
+      </section>
+
+      <section class="card span-2" aria-labelledby="ask-h">
+        <h2 id="ask-h">Ask (natural language)</h2>
+        <form id="ask-form" class="row">
+          <input
+            name="query"
+            class="grow"
+            maxlength="300"
+            value="cheap hotels in delhi under 6k"
+            aria-label="Query"
+          />
+          <button type="submit" class="primary">Ask</button>
+        </form>
+        <div id="ask-meta" class="chips"></div>
+        <div id="ask-results"></div>
+      </section>
+
+      <section class="card" aria-labelledby="chaos-h">
+        <h2 id="chaos-h">Chaos controls</h2>
+        <label class="block">
+          Admin token <span class="muted small">(kept in memory only)</span>
+          <input
+            id="admin-token"
+            type="password"
+            autocomplete="off"
+            placeholder="only if ADMIN_TOKEN is set"
+          />
+        </label>
+        <div class="chaos" id="chaos-grid"></div>
+        <div class="row">
+          <button type="button" id="probe-now">Probe now</button>
+          <button type="button" id="chaos-reset" class="danger">Reset all</button>
+        </div>
+        <div id="chaos-state" class="chips"></div>
+      </section>
+
+      <section class="card span-3" aria-labelledby="insights-h">
+        <h2 id="insights-h">Insights</h2>
+        <form id="insights-form" class="row">
+          <label>City <input name="city" value="jaipur" required maxlength="50" /></label>
+          <button type="submit" class="primary">Explain</button>
+        </form>
+        <div id="insights-summary" class="chips"></div>
+        <div id="insights-decisions"></div>
+        <div id="insights-dups"></div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <a href="/docs">API docs</a> · <a href="/health">/health</a> ·
+      <a id="temporal-link" href="#" target="_blank" rel="noopener">Temporal UI</a>
+    </footer>
+    <script src="/console/console.js"></script>
+  </body>
+</html>

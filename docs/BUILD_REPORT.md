@@ -504,3 +504,58 @@ live (real Temporal duplicateReviewWorkflow, jaipur):
   0.87 uncertain   similarity  Taj Rambagh Palace | Taj Jai Mahal Palace (LLM band, no LLM configured)
 contract guard                                   → passing
 ```
+
+## Enhancement 7: Ops console UI
+
+**What was added (`FEATURE_CONSOLE`, default `true`; `TEMPORAL_UI_URL`)**
+
+- **`/console`** serves `src/console/{index.html, console.css, console.js}`, copied to `dist/console` by the build.
+  There's no framework, no build step and no CDN. It's responsive (one column under 960 px) and supports light
+  and dark modes.
+- **Sections:**
+  - **Search:** a results table with supplier badges, and header chips (`X-Workflow-Id` linked to the Temporal UI,
+    `X-Cache`, `X-Result-Status`, suppliers, circuits, time).
+  - **Ask:** the interpretation and results.
+  - **Supplier health:** tiles with status, latency, uptime %, circuit and failures, auto-refreshed every 5 s,
+    plus the overall status pill.
+  - **Chaos controls:** up, down, slow and flaky per supplier, reset, and probe-now. The admin token sits in a
+    password field and is held only in memory.
+  - **Insights:** summary chips, the decision table and the possible-duplicates table.
+- **`GET /console/config.json`** gives the Temporal UI base URL, the namespace and the enabled features, so the
+  page hides sections whose feature is off.
+- **Safety:** all rendering uses DOM APIs and `textContent`, never `innerHTML`, so API data can't inject markup.
+  Helmet's strict default CSP (`script-src 'self'`, no inline script) is unchanged, and the page needs no
+  exceptions.
+- **Tests:**
+  - supertest: the page and assets are served, the CSP is strict, there are no CDN URLs, the config is correct,
+    and the flag-off case
+  - **a jsdom smoke test** that loads the real HTML and JS against a live test app and checks: health tiles
+    render, a search renders 7 rows with badges and the correct Temporal link, ask renders 4 results, insights
+    renders 4 duplicate rows, and chaos clicks change modes and reset clears them
+  - Postman folder "15. Ops console"
+- **jsdom 31.0.1** and `@types/jsdom` 30.0.0 (pinned, dev only).
+
+**Decisions**
+
+- **jsdom smoke test instead of a screenshot.** No browser is available in this environment, so the UI was
+  verified by driving the real page in jsdom. A screenshot placeholder is in the README.
+
+**Problems found and fixed**
+
+- ESLint flagged a useless initial assignment in `console.js`. It's fixed, and browser globals are now configured
+  for `src/console`.
+- In the new DOM test, an `until(async …)` call resolved immediately, because a Promise is always truthy. That
+  assertion was vacuous, so `until` now awaits its condition.
+- **A pre-existing flaky test (Enhancement 2):** the continue-as-new monitor test hung about 1 run in 3. A
+  `getStats` query landing during the continue-as-new hop could block on the time-skipping server, and the poll
+  had no deadline. Each poll query now has a 2 s gRPC deadline (`withDeadline`) and retries. It passed 6 of 6
+  runs afterwards.
+
+**Verification**
+
+```
+npm run lint && npm run typecheck && npm test   → Test Files 24 passed, Tests 198 passed
+docker compose up --build -d                     → all 6 services healthy; /console served by the container
+newman run #1 / #2                               → 61 requests, 147 assertions, 0 failed
+contract guard                                   → passing
+```

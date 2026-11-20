@@ -115,6 +115,11 @@ const EnvSchema = z.object({
   /** Enhancement 6: report-only near-duplicate detection in insights. */
   FEATURE_DUPLICATES: bool.default(true),
 
+  /** Enhancement 7: ops console at /console. */
+  FEATURE_CONSOLE: bool.default(true),
+  /** Base URL of the Temporal UI, used for workflow links in the console. */
+  TEMPORAL_UI_URL: z.string().url().default('http://localhost:8080'),
+
   // Chaos / admin
   ENABLE_CHAOS: bool.default(true),
   /** Enhancement 5: production refuses to start without a strong ADMIN_TOKEN. */

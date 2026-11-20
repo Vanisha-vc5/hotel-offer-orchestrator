@@ -150,6 +150,9 @@ sequenceDiagram
   listings across suppliers such as "Radisson Blu" and "Radison Blu", or "The Leela Palace" and "Leela Palace". It
   uses hand-written Jaro-Winkler and token-set similarity with mutual-best matching, plus an LLM judge activity
   for ambiguous pairs.
+- ⭐ **Ops console** at **<http://localhost:3000/console>**. One dependency-free page (plain HTML, CSS and JS, no
+  CDN, strict CSP) shows search with workflow links into the Temporal UI, natural-language ask, live supplier
+  health with circuits, chaos buttons, and insights with possible duplicates.
 - ⭐ **Chaos engineering.** Each supplier can be set to `down`, `slow` or `flaky` over HTTP, with state shared through Redis.
 - `/health` probes both suppliers, Redis and Temporal in parallel with real latency and reports `up`, `degraded`
   or `down`. There are also `/health/live` and `/health/ready`.
@@ -387,6 +390,22 @@ LLM_BASE_URL=https://api.groq.com/openai/v1     # Ollama: http://host.docker.int
 LLM_MODEL=llama-3.1-8b-instant
 LLM_API_KEY=gsk_...
 ```
+
+### Ops console (`/console`)
+
+Open <http://localhost:3000/console>. It's one static page with no framework, no build step and no CDN, so it
+works offline and keeps helmet's strict CSP (`script-src 'self'`, no inline script). It has five sections:
+
+- **Search:** results with supplier badges, plus the `X-Workflow-Id` (linked to the Temporal UI), `X-Cache`,
+  `X-Result-Status` and circuit headers.
+- **Ask:** natural-language queries and how they were interpreted.
+- **Supplier health:** status, latency, uptime % and circuit state, refreshed every 5 s.
+- **Chaos controls:** up, down, slow and flaky per supplier, plus reset and probe-now. The admin token is held in
+  memory only.
+- **Insights:** the decision table and the possible duplicates.
+
+![Ops console](docs/images/console.png)
+_Screenshot placeholder: open <http://localhost:3000/console> and save a screenshot as `docs/images/console.png`._
 
 ### Mock suppliers
 
@@ -665,6 +684,8 @@ list of every problem. Compose reads `.env`; `.env.example` has the defaults.
 | `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL`                                         | `claude-haiku-4-5` (anthropic) / – / –   | model, key and base URL (base URL and model required for openai-compatible)                              |
 | `LLM_TIMEOUT_MS`                                                                     | `5000`                                   | per-call LLM timeout; on timeout the rules parser answers                                                |
 | `FEATURE_DUPLICATES`                                                                 | `true`                                   | `possibleDuplicates` in insights (report-only); ambiguous pairs use the LLM when configured              |
+| `FEATURE_CONSOLE`                                                                    | `true`                                   | ops console at `/console`                                                                                |
+| `TEMPORAL_UI_URL`                                                                    | `http://localhost:8080`                  | Temporal UI base used for workflow links in the console                                                  |
 | `REQUIRE_ADMIN_TOKEN`                                                                | `false` (prod override: `true`)          | refuse to start without a 16+ character `ADMIN_TOKEN`                                                    |
 | `PUBLIC_DOMAIN`                                                                      | –                                        | hostname Caddy serves and gets a certificate for (prod override only)                                    |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD`                                                | `temporal` / `temporal`                  | compose only (Temporal persistence)                                                                      |

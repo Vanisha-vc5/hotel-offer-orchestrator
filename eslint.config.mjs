@@ -51,6 +51,12 @@ export default tseslint.config(
     },
   },
   {
+    // Ops console: a plain browser script (no build step).
+    files: ['src/console/**/*.js'],
+    languageOptions: { sourceType: 'script', globals: { ...globals.browser } },
+    rules: { '@typescript-eslint/explicit-module-boundary-types': 'off' },
+  },
+  {
     files: ['test/**/*.ts', 'scripts/**/*.{ts,mjs}'],
     rules: { '@typescript-eslint/explicit-module-boundary-types': 'off' },
   },

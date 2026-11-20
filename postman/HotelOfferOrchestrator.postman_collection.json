@@ -2512,6 +2512,70 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "15. Ops console",
+      "description": "Enhancement 7: static ops console at /console.",
+      "item": [
+        {
+          "name": "GET /console/",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('console page is served as HTML', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('text/html');",
+                  "  pm.expect(pm.response.text()).to.include('Hotel Offer Orchestrator');",
+                  "});",
+                  "pm.test('strict CSP: scripts only from self', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Security-Policy')).to.include(\"script-src 'self'\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/console/",
+              "host": ["{{baseUrl}}"],
+              "path": ["console"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /console/config.json",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('console config lists enabled features', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().features).to.include.keys('ask', 'chaos', 'monitor', 'duplicates');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/console/config.json",
+              "host": ["{{baseUrl}}"],
+              "path": ["console", "config.json"]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

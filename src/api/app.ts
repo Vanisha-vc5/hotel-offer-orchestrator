@@ -16,6 +16,7 @@ import { requestId, responseTime } from './middleware/requestId';
 import { openApiDocument } from './openapi';
 import { adminRouter } from './routes/admin.routes';
 import { askRouter } from './routes/ask.routes';
+import { consoleRouter } from './routes/console.routes';
 import type { AskService } from './services/askService';
 import type { DuplicateService } from './services/duplicateService';
 import type { AdminDeps } from './routes/admin.routes';
@@ -110,6 +111,8 @@ export function createApp(deps: AppDeps): Express {
       extensions: deps.adminExtensions,
     }),
   );
+
+  if (cfg.FEATURE_CONSOLE) app.use('/console', consoleRouter(cfg));
 
   app.get('/openapi.json', (_req, res) => {
     res.json(openApiDocument);

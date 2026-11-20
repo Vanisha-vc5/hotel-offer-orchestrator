@@ -72,7 +72,11 @@ describe('supplierMonitorWorkflow (time-skipping)', () => {
   ): Promise<MonitorStats> {
     const deadline = Date.now() + 15_000;
     for (;;) {
-      const stats = await handle.query(getStatsQuery).catch(() => undefined);
+      // Per-query deadline: a query that lands while the run is continuing-as-new can
+      // block on the test server; time it out and poll again instead of hanging.
+      const stats = await env.client.connection
+        .withDeadline(Date.now() + 2_000, () => handle.query(getStatsQuery))
+        .catch(() => undefined);
       if (stats && pred(stats)) return stats;
       if (Date.now() > deadline) throw new Error(`timed out; last stats ${JSON.stringify(stats)}`);
       await new Promise((r) => setTimeout(r, 50));
