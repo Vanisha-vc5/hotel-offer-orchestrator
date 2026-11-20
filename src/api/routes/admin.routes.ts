@@ -1,41 +1,38 @@
-import { timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { NotFoundError, UnauthorizedError } from '../../domain/errors';
+import { NotFoundError } from '../../domain/errors';
 import type { HotelRepository } from '../../infra/hotelRepository';
 import type { ChaosStore } from '../../mocks/chaos';
 import { ChaosUpdateSchema, SupplierParamSchema } from '../../mocks/chaos';
+import type { SupplierMetrics } from '../../mocks/supplierMetrics';
+import { requireOperator } from '../middleware/operatorAuth';
 import { CityParamSchema } from '../validation';
 
-export interface AdminOptions {
+export interface AdminDeps {
+  chaos: ChaosStore;
+  repository: HotelRepository;
   chaosEnabled: boolean;
   adminToken?: string;
+  /** FEATURE_BENCHMARK: supplier call counters. */
+  metrics?: SupplierMetrics;
+  /**
+   * Extra work for `DELETE /admin/chaos` (e.g. reset circuits, clear warm-up
+   * caches) so test suites that toggle chaos stay repeatable.
+   */
+  onChaosReset?: Array<() => Promise<void>>;
+  /** Feature modules mount their own admin routes here. */
+  extensions?: Array<(router: Router) => void>;
 }
 
-function requireToken(token: string | undefined): RequestHandler {
-  return (req, _res, next) => {
-    if (!token) return next();
-    const given = Buffer.from(req.header('x-admin-token') ?? '');
-    const expected = Buffer.from(token);
-    if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-      return next(new UnauthorizedError());
-    }
-    next();
-  };
-}
-
-export function adminRouter(
-  chaos: ChaosStore,
-  repository: HotelRepository,
-  opts: AdminOptions,
-): Router {
+export function adminRouter(deps: AdminDeps): Router {
+  const { chaos, repository } = deps;
   const router = Router();
-  router.use(requireToken(opts.adminToken));
+  router.use(requireOperator(deps.adminToken));
 
+  const notFound = (req: Parameters<RequestHandler>[0]): NotFoundError =>
+    new NotFoundError(`Route ${req.method} ${req.originalUrl} not found`);
   const chaosOnly: RequestHandler = (req, _res, next) =>
-    opts.chaosEnabled
-      ? next()
-      : next(new NotFoundError(`Route ${req.method} ${req.originalUrl} not found`));
+    deps.chaosEnabled ? next() : next(notFound(req));
 
   router.get('/chaos', chaosOnly, async (_req, res) => {
     res.json(await chaos.getAll());
@@ -51,6 +48,7 @@ export function adminRouter(
 
   router.delete('/chaos', chaosOnly, async (req, res) => {
     await chaos.reset();
+    await Promise.all((deps.onChaosReset ?? []).map((fn) => fn()));
     req.log.warn('chaos reset');
     res.json(await chaos.getAll());
   });
@@ -62,5 +60,16 @@ export function adminRouter(
     res.json({ city, deletedKeys });
   });
 
+  if (deps.metrics) {
+    const metrics = deps.metrics;
+    router.get('/metrics/suppliers', async (_req, res) => {
+      res.json(await metrics.get());
+    });
+    router.delete('/metrics/suppliers', async (_req, res) => {
+      res.json(await metrics.reset());
+    });
+  }
+
+  for (const extend of deps.extensions ?? []) extend(router);
   return router;
 }

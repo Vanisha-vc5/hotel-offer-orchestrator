@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Response } from 'express';
 import { buildInsights } from '../../domain/insights';
 import type { HotelOffer } from '../../domain/types';
+import { isTrustedOperator } from '../middleware/operatorAuth';
 import { elapsedMs } from '../middleware/requestId';
 import type { HotelService, OffersResult } from '../services/hotelService';
 import { HotelsQuerySchema, InsightsQuerySchema } from '../validation';
@@ -22,8 +23,20 @@ function setMetaHeaders(res: Response, r: OffersResult): void {
   res.setHeader('X-Cache', r.cache);
 }
 
-export function hotelsRouter(service: HotelService): Router {
+export interface HotelsRouterOptions {
+  /** FEATURE_BENCHMARK: honour `X-Coalescing: off` from trusted operators. */
+  allowCoalescingOverride: boolean;
+  adminToken?: string;
+}
+
+export function hotelsRouter(service: HotelService, opts: HotelsRouterOptions): Router {
   const router = Router();
+  const coalesceFor = (req: Parameters<typeof isTrustedOperator>[0]): boolean =>
+    !(
+      opts.allowCoalescingOverride &&
+      req.header('x-coalescing') === 'off' &&
+      isTrustedOperator(req, opts.adminToken)
+    );
 
   /**
    * GET /api/hotels?city=delhi[&minPrice=&maxPrice=][&refresh=true]
@@ -37,9 +50,9 @@ export function hotelsRouter(service: HotelService): Router {
       ? await service.getFilteredOffers(
           q.city,
           { minPrice: q.minPrice, maxPrice: q.maxPrice },
-          { refresh: q.refresh, requestId: req.requestId },
+          { refresh: q.refresh, requestId: req.requestId, coalesce: coalesceFor(req) },
         )
-      : await service.getOffers(q.city, req.requestId);
+      : await service.getOffers(q.city, req.requestId, coalesceFor(req));
 
     req.log.info(
       {

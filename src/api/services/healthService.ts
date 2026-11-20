@@ -77,7 +77,10 @@ export class HealthService {
   private supplier(url: string): Promise<DependencyHealth> {
     const timeoutMs = this.cfg.HEALTH_CHECK_TIMEOUT_MS;
     return probe(async () => {
-      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: { 'x-health-probe': 'true' },
+      });
       await res.body?.cancel();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     }, timeoutMs);

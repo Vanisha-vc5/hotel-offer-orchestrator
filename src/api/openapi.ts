@@ -125,6 +125,14 @@ export const openApiDocument = {
             description: 'Force a new workflow run before filtering',
             schema: { type: 'boolean', default: false },
           },
+          {
+            name: 'X-Coalescing',
+            in: 'header',
+            description:
+              'Operator-only (FEATURE_BENCHMARK + valid x-admin-token if configured): `off` gives this ' +
+              'request its own workflow run. Used by the coalescing benchmark; ignored otherwise.',
+            schema: { type: 'string', enum: ['off'] },
+          },
         ],
         responses: {
           200: {
@@ -353,6 +361,31 @@ export const openApiDocument = {
           400: errorResponse('Invalid supplier or body', {
             bad: errorExample('VALIDATION_ERROR', 'Invalid request'),
           }),
+        },
+      },
+    },
+    '/admin/metrics/suppliers': {
+      get: {
+        tags: ['Admin'],
+        security: [{ adminToken: [] }],
+        summary: 'Supplier data-call counters (FEATURE_BENCHMARK)',
+        description: 'Calls served by the mock suppliers; health and monitor probes are excluded.',
+        responses: {
+          200: {
+            description: 'Counters',
+            content: { 'application/json': { example: { A: 1, B: 1 } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['Admin'],
+        security: [{ adminToken: [] }],
+        summary: 'Reset supplier call counters',
+        responses: {
+          200: {
+            description: 'Reset',
+            content: { 'application/json': { example: { A: 0, B: 0 } } },
+          },
         },
       },
     },

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Client, Connection } from '@temporalio/client';
 import type { TLSConfig } from '@temporalio/client';
@@ -115,9 +116,15 @@ export interface WorkflowRun {
  */
 export async function runHotelOffersWorkflow(
   client: Client,
-  input: { city: string; requestId: string },
+  input: { city: string; requestId: string; coalesce?: boolean },
   cfg: Config = config(),
 ): Promise<WorkflowRun> {
+  // Coalescing off (benchmark comparison only): a unique ID gives every request its own run.
+  const coalesce = cfg.COALESCING_ENABLED && input.coalesce !== false;
+  const workflowId = coalesce
+    ? workflowIdForCity(input.city)
+    : `${workflowIdForCity(input.city)}--${randomUUID().slice(0, 8)}`;
+
   // Explicit gRPC deadlines: without them the SDK's retry interceptor keeps
   // retrying an unreachable server for ~90s before the API could answer 503.
   const handle = await client.connection.withDeadline(
@@ -125,8 +132,8 @@ export async function runHotelOffersWorkflow(
     () =>
       client.workflow.start<typeof hotelOffersWorkflow>('hotelOffersWorkflow', {
         taskQueue: TASK_QUEUE,
-        workflowId: workflowIdForCity(input.city),
-        args: [{ ...input, tuning: tuningFromConfig(cfg) }],
+        workflowId,
+        args: [{ city: input.city, requestId: input.requestId, tuning: tuningFromConfig(cfg) }],
         workflowIdConflictPolicy: 'USE_EXISTING',
         workflowIdReusePolicy: 'ALLOW_DUPLICATE',
         workflowExecutionTimeout: cfg.WORKFLOW_EXECUTION_TIMEOUT,

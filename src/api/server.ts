@@ -5,6 +5,7 @@ import { HotelRepository } from '../infra/hotelRepository';
 import { logger } from '../infra/logger';
 import { closeRedis, getRedis } from '../infra/redis';
 import { ChaosStore } from '../mocks/chaos';
+import { SupplierMetrics } from '../mocks/supplierMetrics';
 import { closeTemporalClient, getTemporalClient, runHotelOffersWorkflow } from '../temporal/client';
 import { createApp } from './app';
 import { HealthService } from './services/healthService';
@@ -26,7 +27,14 @@ function buildDeps(cfg: Config): Parameters<typeof createApp>[0] {
     );
   });
 
-  return { cfg, repository, hotelService, healthService, chaos: new ChaosStore(redis) };
+  return {
+    cfg,
+    repository,
+    hotelService,
+    healthService,
+    chaos: new ChaosStore(redis),
+    metrics: cfg.FEATURE_BENCHMARK ? new SupplierMetrics(redis) : undefined,
+  };
 }
 
 async function main(): Promise<void> {

@@ -183,3 +183,47 @@ newman run #2                                    → 36 requests, 106 assertions
 ```
 
 Tagged `v1.0.0`.
+
+## Enhancement 1: Benchmark that proves request coalescing
+
+**What was added (`FEATURE_BENCHMARK`, default `true`)**
+
+- **Call counters.** The mock suppliers count data calls in Redis (`metrics:supplier:{A|B}:calls`), exposed at
+  `GET`/`DELETE /admin/metrics/suppliers`. Health probes send `x-health-probe` and are not counted, and neither are
+  the Enhancement 2 monitor probes.
+- **Comparison mode.** `COALESCING_ENABLED` (default `true`) controls coalescing globally. There is also a
+  per-request `X-Coalescing: off` operator override: when it is off, the workflow ID becomes
+  `hotel-offers-<city>--<random>`, so every request starts its own run.
+- **Rate-limit bypass.** `x-benchmark: 1` skips the `/api` rate limit, so a 722-request benchmark isn't throttled
+  at 300/min.
+- **The benchmark.** `scripts/benchmark.ts` (`npm run benchmark`) uses a hand-written concurrent client with no new
+  dependency, plus `scripts/lib/{stats,benchmarkReport}.ts`. It produces `docs/benchmarks.md` and a README headline.
+- **Tests:** a Postman folder "10. Supplier call metrics", unit tests for percentiles and the report, integration
+  tests for the counters, override, bypass, token and flag-off cases, and a dev-server test showing that
+  `coalesce: false` gives 5 distinct runs.
+
+**Decisions**
+
+- I used a per-request override instead of restarting the api, so the benchmark is a single command. It's safe:
+  the override is honoured only with the flag on **and** a trusted operator (a matching `x-admin-token` whenever
+  `ADMIN_TOKEN` is set). This is the same trust model as `/admin/chaos`, which can do far more damage. That trust
+  check now lives in `api/middleware/operatorAuth.ts`, shared by `/admin` and the override.
+- The admin router now takes a deps object, with optional feature modules, `onChaosReset` hooks and route
+  extensions, so later enhancements can plug in without touching v1 routes.
+
+**Problem found and fixed: coalescing doesn't give exactly one run at large N.** At N=100 there were 6 runs, not 1.
+The API feeds a burst into Temporal over roughly 0.5–1 s, while a run lasts about 150 ms, so later arrivals find
+the run closed and correctly start a new one (`ALLOW_DUPLICATE`). The first generated interpretation claimed "flat,
+one call per supplier", so I rewrote it to report the measured numbers. The README headline now states the real
+result: **100 concurrent requests → 6 runs and 12 supplier calls (vs 100 runs and 200 calls)**. At N=200 that is
+**16.7× less supplier traffic and 4.8× faster p95**.
+
+**Verification**
+
+```
+npm run lint && npm run typecheck && npm test   → Test Files 11 passed, Tests 100 passed
+docker compose up --build -d                     → all 6 services healthy
+newman run #1 / #2                               → 40 requests, 110 assertions, 0 failed (both runs)
+npm run benchmark                                → 0 errors at every level; table in docs/benchmarks.md
+contract guard                                   → passing
+```

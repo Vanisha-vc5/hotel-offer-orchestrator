@@ -1615,6 +1615,156 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "10. Supplier call metrics",
+      "description": "Enhancement 1: mock supplier call counters and the X-Coalescing operator override.",
+      "item": [
+        {
+          "name": "reset counters",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('counters reset to zero', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.eql({ A: 0, B: 0 });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/metrics/suppliers",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "metrics", "suppliers"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "city=delhi (one coalesced run)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 with 7 hotels', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.have.lengthOf(7);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "counters show supplier calls",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('each supplier was called at least once', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body.A).to.be.at.least(1);",
+                  "  pm.expect(body.B).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/metrics/suppliers",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "metrics", "suppliers"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "X-Coalescing: off -> own workflow run",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('dedicated workflow id, same contract', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.headers.get('X-Workflow-Id')).to.match(/^hotel-offers-delhi--/);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.lengthOf(7);",
+                  "  pm.expect(Object.keys(body[0])).to.eql(['name', 'price', 'supplier', 'commissionPct']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              },
+              {
+                "key": "X-Coalescing",
+                "value": "off"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

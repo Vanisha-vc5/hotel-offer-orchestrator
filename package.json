@@ -24,7 +24,8 @@
     "test:workflow": "vitest run --project workflow",
     "test:integration": "vitest run --project integration",
     "test:postman": "newman run postman/HotelOfferOrchestrator.postman_collection.json -e postman/local.postman_environment.json",
-    "demo:coalescing": "tsx scripts/coalescing-demo.ts"
+    "demo:coalescing": "tsx scripts/coalescing-demo.ts",
+    "benchmark": "tsx scripts/benchmark.ts"
   },
   "dependencies": {
     "@temporalio/activity": "1.26.0",

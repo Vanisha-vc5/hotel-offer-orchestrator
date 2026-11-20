@@ -19,6 +19,7 @@ import { loadConfig } from '../../src/infra/config';
 import { HotelRepository } from '../../src/infra/hotelRepository';
 import { createRedis } from '../../src/infra/redis';
 import { ChaosStore } from '../../src/mocks/chaos';
+import { SupplierMetrics } from '../../src/mocks/supplierMetrics';
 import { supplierAHotels } from '../../src/mocks/supplierA.data';
 import { supplierBHotels } from '../../src/mocks/supplierB.data';
 import { connectTestRedis } from './redis';
@@ -33,12 +34,15 @@ export type RunnerMode = 'ok' | 'B-down' | 'both-down' | 'temporal-down' | 'time
 export class FakeWorkflowRunner {
   mode: RunnerMode = 'ok';
   calls = 0;
+  lastInput?: Parameters<WorkflowRunner>[0];
   private runSeq = 0;
 
   constructor(private readonly repository: HotelRepository) {}
 
-  readonly run: WorkflowRunner = async ({ city, requestId }) => {
+  readonly run: WorkflowRunner = async (input) => {
+    const { city, requestId } = input;
     this.calls++;
+    this.lastInput = input;
     if (this.mode === 'temporal-down') {
       throw new ServiceError('Failed to start Workflow', { cause: new Error('14 UNAVAILABLE') });
     }
@@ -70,7 +74,10 @@ export class FakeWorkflowRunner {
     const { offers, decisions } = selectBestOffers(lists);
     const resultStatus = suppliersStatus.B === 'up' ? 'complete' : 'partial';
     const result = { offers, decisions, suppliersStatus, resultStatus } as const;
-    const workflowId = `hotel-offers-${city}`;
+    const workflowId =
+      input.coalesce === false
+        ? `hotel-offers-${city}--${this.runSeq + 1}`
+        : `hotel-offers-${city}`;
     const runId = `run-${++this.runSeq}`;
     await this.repository.saveCityOffers(
       city,
@@ -120,6 +127,7 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
     cfg,
     repository,
     chaos,
+    metrics: cfg.FEATURE_BENCHMARK ? new SupplierMetrics(redis) : undefined,
     hotelService: new HotelService(runner.run, repository),
     healthService: new HealthService(cfg, repository, async () => {
       if (!temporalUp.value) throw new Error('14 UNAVAILABLE: connection refused');

@@ -1,0 +1,163 @@
+/**
+ * Request-coalescing benchmark.
+ *
+ * For each concurrency level N it fires N simultaneous GET /api/hotels?city=delhi
+ * requests, once with coalescing ON (default) and once OFF (per-request
+ * `X-Coalescing: off` override, honoured only with FEATURE_BENCHMARK=true and a
+ * trusted operator). It measures latency percentiles, distinct workflow runs
+ * (X-Workflow-Run-Id), supplier calls (mock call counters) and errors, then
+ * writes docs/benchmarks.md.
+ *
+ *   npm run benchmark                         # levels 1,10,50,100,200 → docs/benchmarks.md
+ *   LEVELS=50 OUT=- npm run benchmark         # quick run, print only
+ *   BASE_URL=https://host ADMIN_TOKEN=… npm run benchmark
+ */
+import { execSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import os from 'node:os';
+import { distinctCount, summarize } from './lib/stats';
+import { headline, interpretation, table } from './lib/benchmarkReport';
+import type { Mode, Row } from './lib/benchmarkReport';
+
+const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000';
+const CITY = process.env.CITY ?? 'delhi';
+const LEVELS = (process.env.LEVELS ?? '1,10,50,100,200').split(',').map(Number);
+const OUT = process.env.OUT ?? 'docs/benchmarks.md';
+const ADMIN_HEADERS: Record<string, string> = process.env.ADMIN_TOKEN
+  ? { 'x-admin-token': process.env.ADMIN_TOKEN }
+  : {};
+
+async function admin(method: string, path: string): Promise<unknown> {
+  const res = await fetch(`${BASE_URL}${path}`, { method, headers: ADMIN_HEADERS });
+  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+async function hit(
+  mode: Mode,
+  id: string,
+): Promise<{ ms: number; status: number; runId: string | null }> {
+  const started = performance.now();
+  try {
+    const res = await fetch(`${BASE_URL}/api/hotels?city=${encodeURIComponent(CITY)}`, {
+      headers: {
+        ...ADMIN_HEADERS,
+        'x-benchmark': '1',
+        'x-request-id': id,
+        ...(mode === 'off' ? { 'x-coalescing': 'off' } : {}),
+      },
+    });
+    await res.arrayBuffer();
+    return {
+      ms: performance.now() - started,
+      status: res.status,
+      runId: res.headers.get('x-workflow-run-id'),
+    };
+  } catch {
+    return { ms: performance.now() - started, status: 0, runId: null };
+  }
+}
+
+async function level(mode: Mode, n: number): Promise<Row> {
+  await admin('DELETE', '/admin/metrics/suppliers');
+  const started = performance.now();
+  const results = await Promise.all(
+    Array.from({ length: n }, (_, i) => hit(mode, `bench-${mode}-${n}-${i}`)),
+  );
+  const wallMs = Math.round(performance.now() - started);
+  const calls = (await admin('GET', '/admin/metrics/suppliers')) as { A: number; B: number };
+  const ok = results.filter((r) => r.status === 200);
+  return {
+    mode,
+    n,
+    ...summarize(results.map((r) => r.ms)),
+    runs: distinctCount(ok.map((r) => r.runId)),
+    callsA: calls.A,
+    callsB: calls.B,
+    errors: results.length - ok.length,
+    wallMs,
+  };
+}
+
+function machineInfo(): string[] {
+  let docker = 'unknown';
+  try {
+    docker = execSync('docker version --format "{{.Server.Version}}"', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim();
+  } catch {
+    // docker CLI not available from here
+  }
+  const cpus = os.cpus();
+  return [
+    `- **Date:** ${new Date().toISOString()}`,
+    `- **CPU:** ${cpus[0]?.model.trim() ?? 'unknown'} (${cpus.length} logical cores)`,
+    `- **Memory:** ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB`,
+    `- **OS:** ${os.type()} ${os.release()} (${os.arch()})`,
+    `- **Node (client):** ${process.version} · **Docker engine:** ${docker}`,
+    `- **Target:** \`${BASE_URL}/api/hotels?city=${CITY}\` (docker compose stack on the same machine)`,
+  ];
+}
+
+async function main(): Promise<void> {
+  await admin('GET', '/admin/metrics/suppliers'); // fails fast if FEATURE_BENCHMARK is off
+  await admin('DELETE', '/admin/chaos').catch(() => undefined); // make sure both suppliers are up
+  await hit('on', 'bench-warmup'); // warm connections and the worker
+
+  const rows: Row[] = [];
+  for (const mode of ['on', 'off'] as const) {
+    for (const n of LEVELS) {
+      const row = await level(mode, n);
+      rows.push(row);
+      console.log(
+        `coalescing=${mode.padEnd(3)} N=${String(n).padStart(3)}  p50=${row.p50}ms p95=${row.p95}ms ` +
+          `p99=${row.p99}ms runs=${row.runs} calls A/B=${row.callsA}/${row.callsB} errors=${row.errors}`,
+      );
+      await new Promise((r) => setTimeout(r, 500)); // let the previous burst's runs fully close
+    }
+  }
+
+  const head = headline(rows);
+  console.log(`\nHeadline: ${head}`);
+  const failed = rows.some((r) => r.errors > 0);
+
+  if (OUT !== '-') {
+    const md = [
+      '# Request-coalescing benchmark',
+      '',
+      `> **${head}**`,
+      '',
+      'Generated by `npm run benchmark` (`scripts/benchmark.ts`). Each level fires N simultaneous',
+      `\`GET /api/hotels?city=${CITY}\` requests and waits for all of them. "Coalescing off" uses the`,
+      '`X-Coalescing: off` operator override (`FEATURE_BENCHMARK=true`), which gives every request its own',
+      "workflow ID. Supplier calls come from the mock suppliers' Redis counters",
+      '(`GET /admin/metrics/suppliers`); health and monitor probes are not counted.',
+      '',
+      '## Machine',
+      '',
+      ...machineInfo(),
+      '',
+      '## Results',
+      '',
+      ...table(rows),
+      '',
+      '## Interpretation',
+      '',
+      interpretation(rows, CITY),
+      '',
+    ].join('\n');
+    writeFileSync(OUT, md);
+    console.log(`written ${OUT}`);
+  }
+  if (failed) {
+    console.error('some requests failed');
+    process.exitCode = 1;
+  }
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exit(1);
+});

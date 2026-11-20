@@ -4,7 +4,14 @@ import type { CityMeta, HotelRepository, PriceRange } from '../../infra/hotelRep
 import type { WorkflowRun } from '../../temporal/client';
 import { formatSuppliersStatus } from '../../temporal/shared';
 
-export type WorkflowRunner = (input: { city: string; requestId: string }) => Promise<WorkflowRun>;
+export interface RunInput {
+  city: string;
+  requestId: string;
+  /** false = start a dedicated run (benchmark comparison only). Default true. */
+  coalesce?: boolean;
+}
+
+export type WorkflowRunner = (input: RunInput) => Promise<WorkflowRun>;
 
 export type CacheStatus = 'HIT' | 'MISS';
 
@@ -32,8 +39,8 @@ export class HotelService {
   ) {}
 
   /** Unfiltered: always a fresh workflow run (which also refreshes the cache). */
-  async getOffers(city: string, requestId: string): Promise<OffersResult> {
-    const run = await this.runWorkflow({ city, requestId });
+  async getOffers(city: string, requestId: string, coalesce = true): Promise<OffersResult> {
+    const run = await this.runWorkflow({ city, requestId, coalesce });
     return {
       offers: run.result.offers,
       workflowId: run.workflowId,
@@ -51,7 +58,7 @@ export class HotelService {
   async getFilteredOffers(
     city: string,
     range: PriceRange,
-    opts: { refresh: boolean; requestId: string },
+    opts: { refresh: boolean; requestId: string; coalesce?: boolean },
   ): Promise<OffersResult> {
     if (!opts.refresh) {
       const cached = await this.repository.filterByPrice(city, range);
@@ -67,7 +74,11 @@ export class HotelService {
       }
     }
 
-    const run = await this.runWorkflow({ city, requestId: opts.requestId });
+    const run = await this.runWorkflow({
+      city,
+      requestId: opts.requestId,
+      coalesce: opts.coalesce ?? true,
+    });
     const fresh = await this.repository.filterByPrice(city, range);
     if (!fresh.hit) {
       // The workflow persisted successfully, so this means the entry vanished (eviction/flush).

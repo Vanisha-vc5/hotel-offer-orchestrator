@@ -64,6 +64,12 @@ const EnvSchema = z.object({
   SUPPLIER_A_URL: z.string().url().default('http://localhost:3000/supplierA/hotels'),
   SUPPLIER_B_URL: z.string().url().default('http://localhost:3000/supplierB/hotels'),
 
+  // v2 feature flags (all on by default; off = exact v1 behaviour)
+  /** Enhancement 1: supplier call counters, X-Coalescing override, benchmark rate-limit bypass. */
+  FEATURE_BENCHMARK: bool.default(true),
+  /** Request coalescing (one workflow run per city). false only for comparisons. */
+  COALESCING_ENABLED: bool.default(true),
+
   // Chaos / admin
   ENABLE_CHAOS: bool.default(true),
   ADMIN_TOKEN: z

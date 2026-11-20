@@ -84,4 +84,39 @@ describe('request coalescing (real Temporal dev server)', () => {
 
     expect(next.runId).not.toBe(runs[0]?.runId);
   });
+
+  it('coalesce: false (benchmark comparison) gives every request its own run', async () => {
+    const calls: Record<SupplierId, number> = { A: 0, B: 0 };
+    const activities: HotelActivities = {
+      async fetchSupplierHotels(supplier) {
+        calls[supplier]++;
+        await new Promise((r) => setTimeout(r, 300));
+        return [];
+      },
+      async persistOffers() {
+        return { ttlSeconds: 300 };
+      },
+    };
+    const worker = await Worker.create({
+      connection: env.nativeConnection,
+      taskQueue: TASK_QUEUE,
+      workflowBundle: await bundleWorkflowCode({
+        workflowsPath: path.resolve(__dirname, '../../src/temporal/workflows/index.ts'),
+        logger: silent,
+      }),
+      activities,
+    });
+    const city = `nocoalesce-${randomUUID().slice(0, 8)}`;
+    const cfg = loadConfig({ NODE_ENV: 'test' });
+    const runs = await worker.runUntil(
+      Promise.all(
+        Array.from({ length: 5 }, (_, i) =>
+          runHotelOffersWorkflow(env.client, { city, requestId: `r-${i}`, coalesce: false }, cfg),
+        ),
+      ),
+    );
+    expect(new Set(runs.map((r) => r.runId)).size).toBe(5);
+    expect(runs.every((r) => r.workflowId.startsWith(`hotel-offers-${city}--`))).toBe(true);
+    expect(calls).toEqual({ A: 5, B: 5 });
+  });
 });

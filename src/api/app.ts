@@ -9,10 +9,13 @@ import type { Config } from '../infra/config';
 import type { HotelRepository } from '../infra/hotelRepository';
 import { logger } from '../infra/logger';
 import type { ChaosStore } from '../mocks/chaos';
+import type { SupplierMetrics } from '../mocks/supplierMetrics';
+import { isTrustedOperator } from './middleware/operatorAuth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { requestId, responseTime } from './middleware/requestId';
 import { openApiDocument } from './openapi';
 import { adminRouter } from './routes/admin.routes';
+import type { AdminDeps } from './routes/admin.routes';
 import { healthRouter } from './routes/health.routes';
 import { hotelsRouter } from './routes/hotels.routes';
 import { suppliersRouter } from './routes/suppliers.routes';
@@ -25,6 +28,11 @@ export interface AppDeps {
   healthService: HealthService;
   repository: HotelRepository;
   chaos: ChaosStore;
+  /** FEATURE_BENCHMARK: supplier call counters (absent when the flag is off). */
+  metrics?: SupplierMetrics;
+  /** Hooks and admin routes contributed by v2 feature modules. */
+  onChaosReset?: AdminDeps['onChaosReset'];
+  adminExtensions?: AdminDeps['extensions'];
 }
 
 /** Builds the Express app from injected dependencies (exported for supertest). */
@@ -61,17 +69,33 @@ export function createApp(deps: AppDeps): Express {
       standardHeaders: 'draft-8',
       legacyHeaders: false,
       handler: (_req, _res, next) => next(new AppError('RATE_LIMITED', 429, 'Too many requests')),
+      // FEATURE_BENCHMARK: trusted load tests (x-benchmark: 1) are not rate limited.
+      skip: (req) =>
+        cfg.FEATURE_BENCHMARK &&
+        req.header('x-benchmark') === '1' &&
+        isTrustedOperator(req, cfg.ADMIN_TOKEN),
     }),
   );
 
-  app.use('/api', hotelsRouter(deps.hotelService));
+  app.use(
+    '/api',
+    hotelsRouter(deps.hotelService, {
+      allowCoalescingOverride: cfg.FEATURE_BENCHMARK,
+      adminToken: cfg.ADMIN_TOKEN,
+    }),
+  );
   app.use('/health', healthRouter(deps.healthService));
-  app.use(suppliersRouter(deps.chaos));
+  app.use(suppliersRouter(deps.chaos, deps.metrics));
   app.use(
     '/admin',
-    adminRouter(deps.chaos, deps.repository, {
+    adminRouter({
+      chaos: deps.chaos,
+      repository: deps.repository,
       chaosEnabled: cfg.ENABLE_CHAOS,
       adminToken: cfg.ADMIN_TOKEN,
+      metrics: deps.metrics,
+      onChaosReset: deps.onChaosReset,
+      extensions: deps.adminExtensions,
     }),
   );
 

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { SupplierHotel, SupplierId } from '../../domain/types';
 import type { ChaosStore } from '../../mocks/chaos';
+import type { SupplierMetrics } from '../../mocks/supplierMetrics';
 import { supplierAHotels } from '../../mocks/supplierA.data';
 import { supplierBHotels } from '../../mocks/supplierB.data';
 import { SupplierQuerySchema } from '../validation';
@@ -20,11 +21,13 @@ function supplierError(res: Response, status: number, message: string): void {
  * Mock third-party supplier APIs. They are chaos-aware so failures, latency and
  * transient errors can be demonstrated over a real HTTP hop.
  */
-export function suppliersRouter(chaos: ChaosStore): Router {
+export function suppliersRouter(chaos: ChaosStore, metrics?: SupplierMetrics): Router {
   const router = Router();
 
   const handler = (supplier: SupplierId) => async (req: Request, res: Response) => {
     const { city } = SupplierQuerySchema.parse(req.query);
+    // Count data calls only; health and monitor probes identify themselves.
+    if (metrics && !req.header('x-health-probe')) await metrics.recordCall(supplier);
     const state = await chaos.getOrUp(supplier);
     const log = req.log.child({ supplier, chaosMode: state.mode });
 
