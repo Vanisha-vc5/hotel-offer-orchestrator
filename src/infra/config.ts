@@ -21,7 +21,7 @@ const duration = z
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
-  SERVICE_VERSION: z.string().default('1.0.0'),
+  SERVICE_VERSION: z.string().default('2.0.0'),
 
   // HTTP API
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),

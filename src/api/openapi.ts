@@ -96,7 +96,7 @@ export const openApiDocument = {
   openapi: '3.0.3',
   info: {
     title: 'Hotel Offer Orchestrator',
-    version: '1.0.0',
+    version: '2.0.0',
     description:
       'Aggregates hotel offers from two suppliers with Temporal, picks the best offer per hotel, ' +
       'caches results in Redis and filters by price inside Redis.\n\n' +
@@ -312,7 +312,7 @@ export const openApiDocument = {
                   status: 'degraded',
                   timestamp: '2026-11-20T10:00:00.000Z',
                   uptimeSec: 532,
-                  version: '1.0.0',
+                  version: '2.0.0',
                   dependencies: {
                     supplierA: { status: 'up', latencyMs: 14 },
                     supplierB: { status: 'down', latencyMs: 2001, error: 'timeout after 2000ms' },

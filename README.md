@@ -11,12 +11,55 @@
 ![Temporal](https://img.shields.io/badge/Temporal-1.26-000000)
 ![Redis](https://img.shields.io/badge/Redis-7.4-DC382D?logo=redis&logoColor=white)
 
-A hotel offer aggregator built with Temporal. For a city, it asks two suppliers for hotels **in parallel**,
-merges duplicates, and keeps the **best offer per hotel**: the cheaper one, or on a price tie the one with the
-better commission. It returns a deterministic JSON array. Results are cached in Redis, and **price filtering
-runs inside Redis** with one atomic Lua call. The service stays useful when things break: if one supplier is
-down you get a partial result, if both are down you get an honest `503`, and concurrent requests for the same
-city share **one** workflow execution. Chaos endpoints let you show each failure mode live.
+A hotel offer aggregator built with Temporal. For a city, it asks two suppliers in parallel, merges duplicates,
+and keeps the **best offer per hotel**: the cheaper one, or on a price tie the one with the better commission.
+The result is a deterministic JSON array. Results are cached in Redis, and **price filtering runs inside Redis**
+in one atomic Lua call. When things break, it stays useful: partial results when one supplier is down, an
+honest `503` when both are, a monitor-driven **circuit breaker** that skips a dead supplier instantly, and
+**request coalescing** so a burst of identical requests shares one workflow. Everything can be shown live from
+an ops console with chaos controls, and one command verifies all of it from a clean slate.
+
+**Live demo:** _not deployed yet._ Deploy with [`deploy/setup-vm.sh`](docs/DEPLOYMENT.md), then put the URL
+here.
+
+### Highlights
+
+- **Request coalescing, measured:** 100 concurrent requests → **6 workflow runs and 12 supplier calls**, vs 100
+  runs and 200 calls without coalescing. At N=200, supplier traffic is **16.7× lower** and p95 is **4.8× faster**
+  ([docs/benchmarks.md](docs/benchmarks.md)).
+- **Frozen contract:** the graded response is guarded byte-for-byte by a contract test. Every v2 feature is
+  additive and sits behind its own flag.
+- **Resilience you can see:**
+  - one supplier down → `200` partial
+  - both down → `503`
+  - flaky → Temporal retries recover
+  - slow → per-attempt timeouts
+  - circuit open → partial in about **0.15 s** instead of about 2 s of retries
+- **Deeper Temporal use:**
+  - long-running monitor workflows with durable timers, signals, queries and continue-as-new
+  - a **Schedule** that warms the cache through child workflows
+  - an LLM judge kept in an activity, never in workflow code
+- **Natural-language search** (`POST /api/hotels/ask`), using an LLM when configured and a deterministic rules
+  parser always.
+- **Report-only near-duplicate detection** in insights ("Radisson Blu" ≈ "Radison Blu").
+- **Proof:**
+  - [docs/verification-report.md](docs/verification-report.md): `npm run verify` passed 10/10 checks
+  - 198 automated tests
+  - a 61-request, 147-assertion Postman collection that passes twice in a row
+  - one-command HTTPS deployment ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md))
+
+### Reviewer quick tour (under 3 minutes)
+
+```bash
+cp .env.example .env && docker compose up --build -d --wait      # 1. one command, six healthy services
+curl -i "localhost:3000/api/hotels?city=delhi"                    # 2. the graded contract (7 hotels, metadata in headers)
+curl -X POST localhost:3000/admin/chaos/suppliers/B -H 'content-type: application/json' -d '{"mode":"down"}'
+curl -i "localhost:3000/api/hotels?city=delhi"; curl localhost:3000/health   # 3. partial result + degraded health
+curl -X DELETE localhost:3000/admin/chaos && npm run demo:coalescing         # 4. 20 concurrent requests → 1 run
+```
+
+5. Open **<http://localhost:3000/console>**. Search, click the workflow ID to open its history in the Temporal
+   UI (<http://localhost:8080>), then try **Ask** and **Insights → jaipur**.
 
 ---
 
@@ -27,37 +70,53 @@ city share **one** workflow execution. Chaos endpoints let you show each failure
 - [Testing](#testing) · [Deployment](#deployment) · [Project structure](#project-structure)
 - [Troubleshooting](#troubleshooting) · [Future improvements](#future-improvements)
 
-**Project docs:** [original assignment spec](docs/SPEC.md) ·
-[build report (how it was built and verified)](docs/BUILD_REPORT.md) · [v2 enhancement plan](ENHANCEMENTS.md)
+**Docs:**
+
+- [benchmarks](docs/benchmarks.md) · [verification report](docs/verification-report.md) ·
+  [deployment guide](docs/DEPLOYMENT.md) · [demo script](docs/DEMO_SCRIPT.md) · [changelog](CHANGELOG.md)
+- [original assignment spec](docs/SPEC.md) · [build report (how it was built and verified)](docs/BUILD_REPORT.md) ·
+  [v2 enhancement plan](ENHANCEMENTS.md)
 
 ## Architecture
 
-Two processes are built from **one Docker image**. The **api** process serves the public API, the mock
-suppliers, health checks, chaos/admin and `/docs`, and starts workflows. The **worker** process runs the
-workflow and its activities. Activities reach the suppliers over real HTTP (`http://api:3000/supplierX/hotels`),
-so latency, failures and timeouts are real.
+Two processes are built from **one Docker image**:
+
+- The **api** process serves the public API, natural-language ask, the mock suppliers, health, chaos/admin,
+  `/docs` and the `/console`, and it starts workflows.
+- The **worker** process runs all workflows and activities, keeps the supplier monitors running, and owns the
+  warm-up Schedule.
+
+Activities reach the suppliers over real HTTP (`http://api:3000/supplierX/hotels`), so latency, failures and
+timeouts are real.
 
 ```mermaid
 flowchart LR
   client([Client / Postman]) -->|GET /api/hotels| api
+  browser([Ops console /console]) --> api
+  client -->|POST /api/hotels/ask| ask
 
   subgraph apiProc["api (Express)"]
     api[Routes + zod validation] --> svc[HotelService]
+    ask["Ask: LLM parser → rules fallback"] --> svc
     mocks["/supplierA, /supplierB<br/>(chaos-aware mocks)"]
-    admin["/admin/chaos, /admin/cache"]
+    admin["/admin: chaos, circuits, warm-up, metrics"]
     health["/health, /health/live, /health/ready"]
   end
 
+  ask -.->|forced tool call| llm[(LLM provider<br/>optional)]
   svc -->|start / USE_EXISTING| temporal[(Temporal server)]
   svc -->|filterByPrice.lua| redis[(Redis 7)]
   temporal --- pg[(PostgreSQL)]
   ui[Temporal UI :8080] --- temporal
+  sched["Schedule: cache-warmup<br/>(every 2m, overlap SKIP)"] --> temporal
 
   subgraph workerProc["worker"]
     wf[hotelOffersWorkflow] --> actA[fetchSupplierHotels A]
     wf --> actB[fetchSupplierHotels B]
     wf --> persist[persistOffers]
+    warm[cacheWarmupWorkflow] -->|child per city| wf
     mon["supplierMonitorWorkflow ×2<br/>(long-running, continue-as-new)"] --> probe[probeSupplier]
+    dup[duplicateReviewWorkflow] --> judge[judgeDuplicate<br/>LLM activity]
   end
 
   temporal <-->|task queue hotel-offers| wf
@@ -67,7 +126,8 @@ flowchart LR
   probe -->|every 15s or probe-now| mocks
   mon -->|circuit + 1h samples| redis
   actB -.->|circuit open? fail fast| redis
-  mocks -->|chaos state| redis
+  judge -.-> llm
+  mocks -->|chaos state, call counters| redis
   health -.->|probes| mocks & redis & temporal
 ```
 
@@ -318,7 +378,7 @@ runs the workflow first. Its response is separate from the graded contract, so i
   "status": "degraded",
   "timestamp": "2026-11-20T16:53:38.095Z",
   "uptimeSec": 32,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "dependencies": {
     "supplierA": { "status": "up", "latencyMs": 102 },
     "supplierB": { "status": "down", "latencyMs": 54, "error": "HTTP 503" },
