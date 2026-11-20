@@ -39,6 +39,8 @@ async function main(): Promise<void> {
     logger: new PinoTemporalLogger(logger.child({ component: 'temporal' })),
     // We handle signals ourselves so shutdown order is explicit (worker → redis → connection).
     shutdownSignals: [],
+    // Forward native core (Rust) logs to the same pino logger instead of raw stderr.
+    telemetryOptions: { logging: { forward: {}, filter: { core: 'WARN', other: 'ERROR' } } },
   });
 
   const connection = await retryWithBackoff(

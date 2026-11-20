@@ -17,7 +17,9 @@ export class PinoTemporalLogger implements TemporalLogger {
   constructor(private readonly pino: PinoLogger) {}
 
   log(level: LogLevel, message: string, meta?: LogMetadata): void {
-    this.pino[LEVELS[level]](meta ?? {}, message);
+    // taskToken is a long opaque blob that adds noise without diagnostic value.
+    const { taskToken: _taskToken, ...rest } = meta ?? {};
+    this.pino[LEVELS[level]](rest, message);
   }
   trace(message: string, meta?: LogMetadata): void {
     this.log('TRACE', message, meta);

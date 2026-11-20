@@ -2,7 +2,15 @@
  * Types and constants shared by the API, the worker and the workflow sandbox.
  * MUST stay free of Node built-ins and I/O: it is bundled into workflow code.
  */
-import type { Decision, HotelOffer, ResultStatus, SuppliersStatus } from '../domain/types';
+import type {
+  Decision,
+  HotelOffer,
+  ResultStatus,
+  SupplierId,
+  SupplierStatus,
+  SuppliersStatus,
+} from '../domain/types';
+import type { Duration } from '@temporalio/common';
 
 export const TASK_QUEUE = 'hotel-offers';
 export const WORKFLOW_ID_PREFIX = 'hotel-offers-';
@@ -14,14 +22,14 @@ export function workflowIdForCity(city: string): string {
 
 /** Durations use Temporal's duration strings, e.g. '300ms', '4s'. */
 export interface ActivityTuning {
-  supplierStartToCloseTimeout: string;
+  supplierStartToCloseTimeout: Duration;
   supplierRetry: {
-    initialInterval: string;
+    initialInterval: Duration;
     backoffCoefficient: number;
-    maximumInterval: string;
+    maximumInterval: Duration;
     maximumAttempts: number;
   };
-  persistStartToCloseTimeout: string;
+  persistStartToCloseTimeout: Duration;
   persistMaximumAttempts: number;
 }
 
@@ -59,7 +67,8 @@ export type WorkflowStep = 'fetching' | 'selecting' | 'persisting' | 'done' | 'f
 export interface WorkflowStatus {
   step: WorkflowStep;
   city: string;
-  suppliers: SuppliersStatus;
+  /** 'pending' until that supplier's fetch settles. */
+  suppliers: Record<SupplierId, SupplierStatus | 'pending'>;
 }
 
 /** What persistOffers writes to Redis (result + provenance). */

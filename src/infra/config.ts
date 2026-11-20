@@ -1,3 +1,4 @@
+import type { Duration } from '@temporalio/common';
 import { z } from 'zod';
 
 const bool = z
@@ -5,6 +6,12 @@ const bool = z
   .transform((v) => v === 'true' || v === '1' || v === 'yes');
 
 const ms = z.coerce.number().int().positive();
+
+/** Temporal duration string such as '300ms', '4s', '1.5m'. */
+const duration = z
+  .string()
+  .regex(/^\d+(\.\d+)?(ms|s|m|h|d)$/, 'expected a duration like 300ms, 4s or 2m')
+  .transform((v) => v as Duration);
 
 /**
  * Every tunable lives here. Values are validated once at startup; an invalid
@@ -41,14 +48,14 @@ const EnvSchema = z.object({
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
 
   // Workflow + activity tuning (passed into the workflow as input, see shared.ts)
-  WORKFLOW_EXECUTION_TIMEOUT: z.string().default('30s'),
-  SUPPLIER_ACTIVITY_TIMEOUT: z.string().default('4s'),
+  WORKFLOW_EXECUTION_TIMEOUT: duration.default('30s'),
+  SUPPLIER_ACTIVITY_TIMEOUT: duration.default('4s'),
   SUPPLIER_HTTP_TIMEOUT_MS: ms.default(3_500),
-  SUPPLIER_RETRY_INITIAL_INTERVAL: z.string().default('300ms'),
+  SUPPLIER_RETRY_INITIAL_INTERVAL: duration.default('300ms'),
   SUPPLIER_RETRY_BACKOFF: z.coerce.number().min(1).default(2),
-  SUPPLIER_RETRY_MAX_INTERVAL: z.string().default('2s'),
+  SUPPLIER_RETRY_MAX_INTERVAL: duration.default('2s'),
   SUPPLIER_RETRY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
-  PERSIST_ACTIVITY_TIMEOUT: z.string().default('5s'),
+  PERSIST_ACTIVITY_TIMEOUT: duration.default('5s'),
   PERSIST_RETRY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
 
   // Suppliers

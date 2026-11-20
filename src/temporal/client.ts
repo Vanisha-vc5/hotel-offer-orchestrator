@@ -6,6 +6,9 @@ import type { Config } from '../infra/config';
 import { config } from '../infra/config';
 import { logger } from '../infra/logger';
 import { retryWithBackoff } from '../infra/retry';
+import type { hotelOffersWorkflow } from './workflows';
+import { TASK_QUEUE, workflowIdForCity } from './shared';
+import type { ActivityTuning, HotelOffersWorkflowResult } from './shared';
 
 export interface TemporalConnectionSettings {
   address: string;
@@ -77,4 +80,52 @@ export async function closeTemporalClient(): Promise<void> {
   } catch {
     // never connected; nothing to close
   }
+}
+
+/** Builds activity tuning from env; it travels to the workflow as input. */
+export function tuningFromConfig(cfg: Config = config()): ActivityTuning {
+  return {
+    supplierStartToCloseTimeout: cfg.SUPPLIER_ACTIVITY_TIMEOUT,
+    supplierRetry: {
+      initialInterval: cfg.SUPPLIER_RETRY_INITIAL_INTERVAL,
+      backoffCoefficient: cfg.SUPPLIER_RETRY_BACKOFF,
+      maximumInterval: cfg.SUPPLIER_RETRY_MAX_INTERVAL,
+      maximumAttempts: cfg.SUPPLIER_RETRY_MAX_ATTEMPTS,
+    },
+    persistStartToCloseTimeout: cfg.PERSIST_ACTIVITY_TIMEOUT,
+    persistMaximumAttempts: cfg.PERSIST_RETRY_MAX_ATTEMPTS,
+  };
+}
+
+export interface WorkflowRun {
+  result: HotelOffersWorkflowResult;
+  workflowId: string;
+  runId: string;
+}
+
+/**
+ * Starts (or joins) the hotel-offers workflow for a city and waits for its result.
+ *
+ * Request coalescing: the workflow ID is deterministic per city and the start
+ * uses `workflowIdConflictPolicy: USE_EXISTING`, so concurrent requests for the
+ * same city attach to the one running execution instead of each fanning out to
+ * the suppliers. `workflowIdReusePolicy: ALLOW_DUPLICATE` lets a fresh run start
+ * once the previous one has closed (completed or failed).
+ */
+export async function runHotelOffersWorkflow(
+  client: Client,
+  input: { city: string; requestId: string },
+  cfg: Config = config(),
+): Promise<WorkflowRun> {
+  const handle = await client.workflow.start<typeof hotelOffersWorkflow>('hotelOffersWorkflow', {
+    taskQueue: TASK_QUEUE,
+    workflowId: workflowIdForCity(input.city),
+    args: [{ ...input, tuning: tuningFromConfig(cfg) }],
+    workflowIdConflictPolicy: 'USE_EXISTING',
+    workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+    workflowExecutionTimeout: cfg.WORKFLOW_EXECUTION_TIMEOUT,
+    memo: { requestId: input.requestId, city: input.city },
+  });
+  const result = await handle.result();
+  return { result, workflowId: handle.workflowId, runId: handle.firstExecutionRunId };
 }
