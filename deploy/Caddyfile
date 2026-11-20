@@ -1,0 +1,22 @@
+# Public entrypoint. Caddy obtains and renews a TLS certificate for
+# $PUBLIC_DOMAIN automatically (Let's Encrypt / ZeroSSL). With no domain, use
+# <public-ip>.sslip.io; with PUBLIC_DOMAIN=localhost it issues a local cert.
+{
+	admin localhost:2019
+}
+
+{$PUBLIC_DOMAIN} {
+	encode zstd gzip
+
+	# The api is the only upstream. Redis, Postgres, Temporal and the Temporal UI
+	# stay on the internal network (Temporal UI: SSH tunnel, see docs/DEPLOYMENT.md).
+	reverse_proxy api:3000 {
+		health_uri /health/live
+		health_interval 10s
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

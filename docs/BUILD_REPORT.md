@@ -384,3 +384,57 @@ docker compose up --build -d                     → all 6 services healthy
 newman run #1 / #2 / #3 (after the warm-up fix) → 57 requests, 137 assertions, 0 failed
 contract guard                                   → passing
 ```
+
+## Enhancement 5: Live deployment preparation
+
+**What was added**
+
+- **`docker-compose.prod.yml`:**
+  - a **Caddy 2.11.9** reverse proxy with automatic HTTPS for `PUBLIC_DOMAIN` (or `<ip>.sslip.io`)
+  - the only published ports are 80, 443 and 443/udp. Every other service has `ports: !reset []`. The Temporal UI
+    uses `!override` to bind to `127.0.0.1:8080` only (SSH tunnel).
+  - `ADMIN_TOKEN` and `PUBLIC_DOMAIN` are required through `${VAR:?}`, so compose fails before starting
+  - `REQUIRE_ADMIN_TOKEN=true` and `TRUST_PROXY=true` for the api
+  - json-file log rotation (`10m × 3`) and a `mem_limit` on every service
+- **`deploy/Caddyfile`:** `reverse_proxy api:3000` with an active health check on `/health/live`, zstd/gzip, and JSON
+  access logs.
+- **Config:** `REQUIRE_ADMIN_TOKEN`. When it's `true`, startup fails unless `ADMIN_TOKEN` is at least 16 characters.
+  Unit tests cover it.
+- **`deploy/setup-vm.sh`** (idempotent): installs Docker, sets ufw to 22/80/443, clones or fast-forwards the repo,
+  creates `.env` with a random `ADMIN_TOKEN` and `POSTGRES_PASSWORD` (existing secrets are kept), derives an
+  sslip.io hostname when no domain is given, runs `up -d --build --wait`, and prints the URL and how to open the
+  tunnel.
+- **`deploy/update.sh`:** `git pull --ff-only`, rebuild and recreate with `--wait`, prune images, check health.
+- **`docs/DEPLOYMENT.md`:** VM sizing, DNS or sslip.io, first deploy, updates, logs, the Temporal UI tunnel, Postman
+  against production, Postgres backups (`pg_dumpall` plus cron), and troubleshooting.
+- **`postman/production.postman_environment.json`:** a placeholder `baseUrl` and a secret `adminToken`.
+
+**Decisions**
+
+- **The Temporal UI stays unexposed** (loopback plus SSH tunnel) rather than sitting behind basic auth at
+  `/temporal`. The UI is a single-page app with absolute asset paths, so a sub-path needs extra UI configuration.
+  The tunnel is simpler, always works, and adds no public attack surface.
+- **Chaos stays enabled in production behind the admin token,** so the resilience demo works live
+  (`ENABLE_CHAOS=false` turns it off).
+
+**Problems found:** shellcheck flagged an unused variable and word-splitting of `$SUDO` in `setup-vm.sh`. Both were
+fixed and shellcheck is now clean. Git Bash path conversion broke the first shellcheck container run;
+`MSYS_NO_PATHCONV=1` fixed it.
+
+**Verification (the prod override, run for real on this machine with `PUBLIC_DOMAIN=localhost`)**
+
+```
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config   → only caddy publishes 80/443;
+      temporal-ui 127.0.0.1:8080; mem limits + 10m log rotation everywhere;
+      missing ADMIN_TOKEN / PUBLIC_DOMAIN → compose refuses to start
+up -d --build --wait                         → 7 services healthy (incl. caddy)
+api :3000 / redis direct                     → not reachable (connection refused)
+http://localhost                             → 308 → https; https://localhost/health → 200 (HSTS set)
+/admin without token → 401; with token → 200
+newman via Caddy HTTPS (production env + token), run #1 / #2 → 57 requests, 137 assertions, 0 failed
+shellcheck deploy/*.sh                       → clean
+npm test                                     → all passing (new config tests included)
+```
+
+The dev stack was restored afterwards with `docker compose up -d --remove-orphans`. The actual VM steps are left
+for the owner to run; the exact commands are in `docs/DEPLOYMENT.md` §3.

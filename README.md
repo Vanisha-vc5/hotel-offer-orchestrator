@@ -639,6 +639,8 @@ list of every problem. Compose reads `.env`; `.env.example` has the defaults.
 | `LLM_PROVIDER`                                                                       | `none`                                   | `none` (rules parser only), `anthropic` or `openai-compatible`                                           |
 | `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL`                                         | `claude-haiku-4-5` (anthropic) / – / –   | model, key and base URL (base URL and model required for openai-compatible)                              |
 | `LLM_TIMEOUT_MS`                                                                     | `5000`                                   | per-call LLM timeout; on timeout the rules parser answers                                                |
+| `REQUIRE_ADMIN_TOKEN`                                                                | `false` (prod override: `true`)          | refuse to start without a 16+ character `ADMIN_TOKEN`                                                    |
+| `PUBLIC_DOMAIN`                                                                      | –                                        | hostname Caddy serves and gets a certificate for (prod override only)                                    |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD`                                                | `temporal` / `temporal`                  | compose only (Temporal persistence)                                                                      |
 | `API_HOST_PORT` / `REDIS_HOST_PORT` / `TEMPORAL_HOST_PORT` / `TEMPORAL_UI_HOST_PORT` | `3000` / `6379` / `7233` / `8080`        | compose host bindings; can be `127.0.0.1:PORT`                                                           |
 
@@ -675,6 +677,18 @@ npm run test:postman
 ```
 
 ## Deployment
+
+> **Recommended: one command with automatic HTTPS.** `deploy/setup-vm.sh` installs Docker, sets up ufw (22, 80,
+> 443), clones the repo, generates secrets and starts the stack with `docker-compose.prod.yml`. That override adds
+> Caddy with Let's Encrypt (your domain or `<ip>.sslip.io`), keeps every other service internal, requires
+> `ADMIN_TOKEN`, and adds log rotation and memory limits. `deploy/update.sh` handles updates. The full guide, with
+> backups and troubleshooting, is **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+>
+> ```bash
+> REPO_URL=https://github.com/OWNER/hotel-offer-orchestrator.git PUBLIC_DOMAIN=hotels.example.com bash deploy/setup-vm.sh
+> ```
+>
+> The manual steps below still work if you prefer plain Compose on port 3000.
 
 ### (a) Any Linux VM (EC2, DigitalOcean, …) with Docker Compose
 

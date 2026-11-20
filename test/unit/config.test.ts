@@ -40,4 +40,20 @@ describe('loadConfig', () => {
   it('requires mTLS cert and key together', () => {
     expect(() => loadConfig({ TEMPORAL_TLS_CERT_PATH: '/tmp/client.pem' })).toThrow(/together/);
   });
+
+  it('fails fast in production mode without a strong ADMIN_TOKEN', () => {
+    expect(() => loadConfig({ REQUIRE_ADMIN_TOKEN: 'true' })).toThrow(/ADMIN_TOKEN is required/);
+    expect(() => loadConfig({ REQUIRE_ADMIN_TOKEN: 'true', ADMIN_TOKEN: 'short' })).toThrow(
+      /16 characters/,
+    );
+    expect(
+      loadConfig({ REQUIRE_ADMIN_TOKEN: 'true', ADMIN_TOKEN: 'a'.repeat(32) }).ADMIN_TOKEN,
+    ).toHaveLength(32);
+  });
+
+  it('requires base URL and model for the openai-compatible LLM provider', () => {
+    expect(() => loadConfig({ LLM_PROVIDER: 'openai-compatible' })).toThrow(
+      /LLM_BASE_URL and LLM_MODEL/,
+    );
+  });
 });

@@ -114,6 +114,8 @@ const EnvSchema = z.object({
 
   // Chaos / admin
   ENABLE_CHAOS: bool.default(true),
+  /** Enhancement 5: production refuses to start without a strong ADMIN_TOKEN. */
+  REQUIRE_ADMIN_TOKEN: bool.default(false),
   ADMIN_TOKEN: z
     .string()
     .optional()
@@ -139,6 +141,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
   const cfg = parsed.data;
+  if (cfg.REQUIRE_ADMIN_TOKEN && (!cfg.ADMIN_TOKEN || cfg.ADMIN_TOKEN.length < 16)) {
+    throw new ConfigError([
+      'ADMIN_TOKEN is required (at least 16 characters) when REQUIRE_ADMIN_TOKEN=true',
+    ]);
+  }
   if (cfg.LLM_PROVIDER === 'openai-compatible' && (!cfg.LLM_BASE_URL || !cfg.LLM_MODEL)) {
     throw new ConfigError(['LLM_PROVIDER=openai-compatible requires LLM_BASE_URL and LLM_MODEL']);
   }
