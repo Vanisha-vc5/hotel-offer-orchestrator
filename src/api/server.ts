@@ -2,11 +2,12 @@ import type { Server } from 'node:http';
 import { createApp } from './app';
 import { config, ConfigError, loadConfig } from '../infra/config';
 import { logger } from '../infra/logger';
-import { closeRedis } from '../infra/redis';
+import { closeRedis, getRedis } from '../infra/redis';
+import { ChaosStore } from '../mocks/chaos';
 
 async function main(): Promise<void> {
   const cfg = config();
-  const app = createApp();
+  const app = createApp({ chaos: new ChaosStore(getRedis()) });
   const server: Server = app.listen(cfg.PORT, () => {
     logger.info({ port: cfg.PORT, env: cfg.NODE_ENV }, 'api listening');
   });
