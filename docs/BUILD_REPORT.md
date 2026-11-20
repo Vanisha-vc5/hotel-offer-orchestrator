@@ -596,3 +596,43 @@ npm run verify  (run #1) → ✅ 10/10 checks; tests 89 + 17 + 92; newman 61 req
                             benchmark N=50: on 3 runs / 3+3 calls vs off 50 runs / 50+50 calls
 npm run verify  (run #2) → ✅ 10/10 checks in 140 s (same results; report committed as docs/verification-report.md)
 ```
+
+## Enhancement 9: Final polish and release (v2.0.0)
+
+**What was added**
+
+- **The README now leads with the strongest material:**
+  - the pitch, and a live-URL slot (not deployed yet; the VM steps are the owner's)
+  - **Highlights** with the measured benchmark headline
+  - a **Reviewer quick tour** (five steps, under 3 minutes)
+  - links to `docs/benchmarks.md`, `docs/verification-report.md`, `docs/DEPLOYMENT.md`, the demo script and the
+    changelog
+  - an architecture diagram updated to show the monitor workflows, the warm-up Schedule, the ask/LLM parser, the
+    duplicate review and the console
+- **`CHANGELOG.md`** covers 1.0.0 and 2.0.0.
+- **`docs/DEMO_SCRIPT.md`:** a 3-minute recording script (search, then B down, then the circuit opening, then
+  flaky retries in the Temporal UI, then the benchmark, then ask, then insights and duplicates, then the verify
+  report), with backup curl commands.
+- **Version 2.0.0** in `package.json`, the `SERVICE_VERSION` default, the image tag and OpenAPI.
+
+**Fresh-clone test** (clone HEAD into a temp folder; follow only the README)
+
+- `cp .env.example .env && docker compose up --build -d --wait` gave 6 healthy services. The only deviation was
+  `REDIS_HOST_PORT=6380`, because another project's Redis holds 6379 on this machine; the README's
+  troubleshooting table covers this exact case.
+- The Quick Start curls worked: 7 delhi hotels with all headers, the 3-hotel filter, insights, `/health` up, B
+  down giving partial plus degraded, `/console`, `/docs` and the Temporal UI all returned 200.
+- **Bug found and fixed:** quick-tour step 4 (`npm run demo:coalescing`) failed on a fresh clone with
+  `'tsx' is not recognized`, because the README never said to run `npm ci` first. The tour (and the resilience
+  demo) now say `npm ci` and Node 24. After the fix, the clone gave `distinct runs: 1 … PASS`, and newman in the
+  clone passed 61 requests and 147 assertions with 0 failures.
+
+**Verification**
+
+```
+npm run lint && npm run typecheck && npm test   → Test Files 24 passed, Tests 198 passed
+contract guard (test/integration/contract.guard.test.ts) → 4/4 passing (graded contract unchanged since v1.0.0)
+fresh clone: compose up → 6 healthy; README curls OK; demo:coalescing PASS; newman 147/147
+```
+
+Tagged `v2.0.0`.

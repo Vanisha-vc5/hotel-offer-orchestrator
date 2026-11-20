@@ -55,7 +55,8 @@ cp .env.example .env && docker compose up --build -d --wait      # 1. one comman
 curl -i "localhost:3000/api/hotels?city=delhi"                    # 2. the graded contract (7 hotels, metadata in headers)
 curl -X POST localhost:3000/admin/chaos/suppliers/B -H 'content-type: application/json' -d '{"mode":"down"}'
 curl -i "localhost:3000/api/hotels?city=delhi"; curl localhost:3000/health   # 3. partial result + degraded health
-curl -X DELETE localhost:3000/admin/chaos && npm run demo:coalescing         # 4. 20 concurrent requests → 1 run
+curl -X DELETE localhost:3000/admin/chaos
+npm ci && npm run demo:coalescing     # 4. 20 concurrent requests → 1 run (needs Node 24, see .nvmrc)
 ```
 
 5. Open **<http://localhost:3000/console>**. Search, click the workflow ID to open its history in the Temporal
@@ -675,7 +676,7 @@ curl -XPOST $B/admin/chaos/suppliers/B -H "$J" -d '{"mode":"slow","latencyMs":60
 curl -i "$B/api/hotels?city=delhi"     # 200, partial, X-Suppliers-Status: A=up;B=down
 curl -XDELETE $B/admin/chaos
 
-# 5. Request coalescing: 20 concurrent requests → one workflow run
+# 5. Request coalescing: 20 concurrent requests → one workflow run (scripts need `npm ci` once, Node 24)
 npm run demo:coalescing                # "distinct runs: 1 … PASS"
 npm run benchmark                      # N = 1…200, coalescing on vs off → docs/benchmarks.md
 
