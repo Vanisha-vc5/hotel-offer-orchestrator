@@ -25,7 +25,8 @@
     "test:integration": "vitest run --project integration",
     "test:postman": "newman run postman/HotelOfferOrchestrator.postman_collection.json -e postman/local.postman_environment.json",
     "demo:coalescing": "tsx scripts/coalescing-demo.ts",
-    "benchmark": "tsx scripts/benchmark.ts"
+    "benchmark": "tsx scripts/benchmark.ts",
+    "verify": "tsx scripts/verify.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.12.0",

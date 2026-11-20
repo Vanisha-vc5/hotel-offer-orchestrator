@@ -1,10 +1,11 @@
 # Hotel Offer Orchestrator
 
 > **TODO before publishing:** replace the `OWNER` placeholder with your GitHub user or organisation in
-> (1) the CI badge URL just below and (2) the `git clone` URL under
+> (1) the CI and E2E badge URLs just below and (2) the `git clone` URLs under
 > [Deployment → Any Linux VM](#a-any-linux-vm-ec2-digitalocean--with-docker-compose).
 
 [![CI](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/ci.yml)
+[![E2E](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/e2e.yml/badge.svg)](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/e2e.yml)
 ![Node](https://img.shields.io/badge/node-24%20LTS-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Temporal](https://img.shields.io/badge/Temporal-1.26-000000)
@@ -713,6 +714,19 @@ npm run lint && npm run typecheck
 
 The integration tests use **DB 15** (`REDIS_URL=redis://localhost:6379/15` in CI) so they never touch the
 running stack's data. Override `REDIS_URL` if your Redis is on another port.
+
+**One-command verification.** `npm run verify` (`scripts/verify.ts`) runs these steps in order:
+
+1. Starts from a clean `docker compose down -v`, then `up --build --wait`, until every service is healthy.
+2. Runs lint and typecheck, then the unit, workflow and integration tests.
+3. Runs the whole Postman collection with newman.
+4. Times each chaos scenario: B down, both down, flaky, slow and the circuit breaker.
+5. Runs a short benchmark at N=50.
+
+It writes **[docs/verification-report.md](docs/verification-report.md)** with the date, versions, a pass/fail table
+with durations and the newman summary, and it exits non-zero on any failure. CI runs it in the `E2E` workflow
+(`.github/workflows/e2e.yml`) and uploads the report and the newman JSON as artifacts. The fast lint/test job is
+in `ci.yml`.
 
 **Postman.** Import `postman/HotelOfferOrchestrator.postman_collection.json` and
 `postman/local.postman_environment.json`, then run the collection top to bottom in the Collection Runner. Or

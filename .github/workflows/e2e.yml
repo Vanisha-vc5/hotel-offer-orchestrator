@@ -1,0 +1,47 @@
+name: E2E
+
+# Full end-to-end verification: clean docker compose stack, every test suite,
+# the Postman collection, timed chaos scenarios and a short benchmark
+# (scripts/verify.ts). The fast lint/test job lives in ci.yml.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: npm run verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Verify (stack + tests + newman + chaos + benchmark)
+        run: npm run verify
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 300
+      - name: Upload verification report and newman output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verification-report
+          path: |
+            docs/verification-report.md
+            newman/
+          if-no-files-found: warn
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

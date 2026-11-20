@@ -559,3 +559,40 @@ docker compose up --build -d                     → all 6 services healthy; /co
 newman run #1 / #2                               → 61 requests, 147 assertions, 0 failed
 contract guard                                   → passing
 ```
+
+## Enhancement 8: One-command verification and an end-to-end CI run
+
+**What was added**
+
+- **`scripts/verify.ts`** (`npm run verify`) runs these steps, timing each one:
+  1. a clean `docker compose down -v`, then `up --build -d --wait`, then a check that every service reports
+     `healthy`
+  2. lint and typecheck
+  3. unit, workflow and integration tests (the integration tests use the `.env` Redis port, DB 15)
+  4. newman with the JSON reporter (`newman/report.json`)
+  5. five timed chaos scenarios (B down, both down, flaky, slow, circuit breaker under 1 s), each resetting chaos
+     afterwards
+  6. a benchmark at N=50, coalescing on vs off
+- It writes **`docs/verification-report.md`** with the date, commit, versions, a pass/fail table with durations,
+  the newman summary, the chaos timings and the benchmark lines. It exits non-zero on any failure, and the
+  infrastructure steps are critical (they abort the run). It creates `.env` from `.env.example` when missing (CI)
+  and passes `ADMIN_TOKEN` along when one is set.
+- **CI split into two workflows, one badge each:**
+  - `ci.yml` keeps the fast job unchanged (lint, format, typecheck, build, tests).
+  - The new `e2e.yml` (job `e2e`) runs `npm run verify` and uploads the report and `newman/` as artifacts. It
+    replaces the old `docker-e2e` job, whose steps `verify` now covers.
+- **README:** an E2E badge and a "one-command verification" section.
+
+**Problems found and fixed:** ESLint flagged regexes containing a literal ESC control character (for ANSI
+stripping) and two useless initial assignments. I replaced them with a `RegExp` built from
+`String.fromCharCode(27)`, and typed the variables without initialising them.
+
+**Verification:** `npm run verify` ran **twice in a row** locally, and both passed. Each run starts from
+`down -v`, so it rebuilds images and recreates every volume.
+
+```
+npm run verify  (run #1) → ✅ 10/10 checks; tests 89 + 17 + 92; newman 61 requests / 147 assertions / 0 failed;
+                            chaos: B down 1958 ms, both down 2047 ms, flaky 2139 ms, slow 11884 ms, circuit <1 s;
+                            benchmark N=50: on 3 runs / 3+3 calls vs off 50 runs / 50+50 calls
+npm run verify  (run #2) → ✅ 10/10 checks in 140 s (same results; report committed as docs/verification-report.md)
+```
