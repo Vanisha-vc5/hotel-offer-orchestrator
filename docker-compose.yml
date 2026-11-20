@@ -13,7 +13,7 @@ x-app: &app
   networks: [hotel-net]
 
 x-app-env: &app-env
-  NODE_ENV: ${NODE_ENV:-production}
+  NODE_ENV: production
   LOG_LEVEL: ${LOG_LEVEL:-info}
   # Container-network addresses override whatever .env says for localhost dev.
   REDIS_URL: redis://redis:6379

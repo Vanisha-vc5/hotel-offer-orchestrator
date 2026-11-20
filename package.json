@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "description": "Temporal-orchestrated hotel offer aggregation with Redis-side price filtering",
   "private": true,
-  "license": "MIT",
+  "license": "UNLICENSED",
   "type": "commonjs",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev:api": "tsx watch src/api/server.ts",
-    "dev:worker": "tsx watch src/temporal/worker.ts",
+    "dev:api": "tsx watch --env-file-if-exists=.env src/api/server.ts",
+    "dev:worker": "tsx watch --env-file-if-exists=.env src/temporal/worker.ts",
     "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs && node dist/temporal/bundle.js",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "start:api": "node dist/api/server.js",

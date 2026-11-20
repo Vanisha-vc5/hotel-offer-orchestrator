@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { Client, Connection } from '@temporalio/client';
 import type { TLSConfig } from '@temporalio/client';
+import { msToNumber } from '@temporalio/common/lib/time';
 import { TemporalUnavailableError } from '../domain/errors';
 import type { Config } from '../infra/config';
 import { config } from '../infra/config';
@@ -117,15 +118,24 @@ export async function runHotelOffersWorkflow(
   input: { city: string; requestId: string },
   cfg: Config = config(),
 ): Promise<WorkflowRun> {
-  const handle = await client.workflow.start<typeof hotelOffersWorkflow>('hotelOffersWorkflow', {
-    taskQueue: TASK_QUEUE,
-    workflowId: workflowIdForCity(input.city),
-    args: [{ ...input, tuning: tuningFromConfig(cfg) }],
-    workflowIdConflictPolicy: 'USE_EXISTING',
-    workflowIdReusePolicy: 'ALLOW_DUPLICATE',
-    workflowExecutionTimeout: cfg.WORKFLOW_EXECUTION_TIMEOUT,
-    memo: { requestId: input.requestId, city: input.city },
-  });
-  const result = await handle.result();
+  // Explicit gRPC deadlines: without them the SDK's retry interceptor keeps
+  // retrying an unreachable server for ~90s before the API could answer 503.
+  const handle = await client.connection.withDeadline(
+    Date.now() + cfg.TEMPORAL_START_TIMEOUT_MS,
+    () =>
+      client.workflow.start<typeof hotelOffersWorkflow>('hotelOffersWorkflow', {
+        taskQueue: TASK_QUEUE,
+        workflowId: workflowIdForCity(input.city),
+        args: [{ ...input, tuning: tuningFromConfig(cfg) }],
+        workflowIdConflictPolicy: 'USE_EXISTING',
+        workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+        workflowExecutionTimeout: cfg.WORKFLOW_EXECUTION_TIMEOUT,
+        memo: { requestId: input.requestId, city: input.city },
+      }),
+  );
+  // The workflow itself times out after WORKFLOW_EXECUTION_TIMEOUT; the margin
+  // lets that timeout surface as a WorkflowFailedError (504) rather than a deadline.
+  const resultDeadline = Date.now() + msToNumber(cfg.WORKFLOW_EXECUTION_TIMEOUT) + 5_000;
+  const result = await client.connection.withDeadline(resultDeadline, () => handle.result());
   return { result, workflowId: handle.workflowId, runId: handle.firstExecutionRunId };
 }

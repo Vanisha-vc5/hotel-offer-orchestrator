@@ -45,6 +45,8 @@ const EnvSchema = z.object({
   TEMPORAL_TLS_KEY_PATH: z.string().optional(),
   TEMPORAL_TLS_SERVER_NAME: z.string().optional(),
   TEMPORAL_CONNECT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(30),
+  /** gRPC deadline for starting a workflow from the API (fail fast → 503). */
+  TEMPORAL_START_TIMEOUT_MS: ms.default(5_000),
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
 
   // Workflow + activity tuning (passed into the workflow as input, see shared.ts)
