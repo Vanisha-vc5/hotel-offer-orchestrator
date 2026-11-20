@@ -104,4 +104,38 @@ describe('fetchSupplierHotels activity', () => {
       .catch((e: unknown) => e);
     expect(err).toMatchObject({ type: 'SupplierNetworkError', nonRetryable: false });
   });
+
+  it('fails fast with non-retryable CircuitOpen when the circuit is open (no HTTP call)', async () => {
+    let httpCalls = 0;
+    const counting = createServer((_req, res) => {
+      httpCalls++;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('[]');
+    });
+    await new Promise<void>((r) => counting.listen(0, '127.0.0.1', () => r()));
+    const { port } = counting.address() as AddressInfo;
+    const cfg = loadConfig({ NODE_ENV: 'test', SUPPLIER_B_URL: `http://127.0.0.1:${port}/b` });
+    const state = { value: 'open' as 'open' | 'closed' };
+    const circuits = {
+      getCircuit: async () => ({
+        state: state.value,
+        consecutiveFailures: 3,
+        openUntil: 1,
+        lastCheckedAt: 1,
+      }),
+    };
+    const acts = createSupplierActivities(cfg, circuits);
+    const env = new MockActivityEnvironment(undefined, { logger: silent });
+
+    const started = performance.now();
+    const err = await env.run(acts.fetchSupplierHotels, 'B', 'delhi').catch((e: unknown) => e);
+    expect(err).toMatchObject({ type: 'CircuitOpen', nonRetryable: true });
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(httpCalls).toBe(0);
+
+    state.value = 'closed';
+    expect(await env.run(acts.fetchSupplierHotels, 'B', 'delhi')).toEqual([]);
+    expect(httpCalls).toBe(1);
+    await new Promise<void>((r) => counting.close(() => r()));
+  });
 });

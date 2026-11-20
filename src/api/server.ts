@@ -7,11 +7,16 @@ import { closeRedis, getRedis } from '../infra/redis';
 import { ChaosStore } from '../mocks/chaos';
 import { SupplierMetrics } from '../mocks/supplierMetrics';
 import { closeTemporalClient, getTemporalClient, runHotelOffersWorkflow } from '../temporal/client';
+import { formatCircuitHeader } from '../domain/circuit';
+import { MonitorStore } from '../infra/monitorStore';
+import { probeNow, resetMonitors } from '../temporal/monitorClient';
 import { createApp } from './app';
+import type { AppDeps } from './app';
+import { monitorAdminRoutes } from './routes/monitor.routes';
 import { HealthService } from './services/healthService';
 import { HotelService } from './services/hotelService';
 
-function buildDeps(cfg: Config): Parameters<typeof createApp>[0] {
+function buildDeps(cfg: Config): AppDeps {
   const redis = getRedis();
   const repository = new HotelRepository(redis);
 
@@ -20,21 +25,49 @@ function buildDeps(cfg: Config): Parameters<typeof createApp>[0] {
     return runHotelOffersWorkflow(client, input, cfg);
   }, repository);
 
-  const healthService = new HealthService(cfg, repository, async (deadlineMs) => {
-    const client = await getTemporalClient();
-    await client.connection.withDeadline(Date.now() + deadlineMs, () =>
-      client.connection.workflowService.getSystemInfo({}),
-    );
-  });
+  // Enhancement 2: monitor + circuit breaker (Redis view + Temporal control plane).
+  const monitorStore = cfg.FEATURE_MONITOR ? new MonitorStore(redis) : undefined;
 
-  return {
+  const healthService = new HealthService(
+    cfg,
+    repository,
+    async (deadlineMs) => {
+      const client = await getTemporalClient();
+      await client.connection.withDeadline(Date.now() + deadlineMs, () =>
+        client.connection.workflowService.getSystemInfo({}),
+      );
+    },
+    monitorStore ? (supplier) => monitorStore.summary(supplier) : undefined,
+  );
+
+  const deps: AppDeps = {
     cfg,
     repository,
     hotelService,
     healthService,
     chaos: new ChaosStore(redis),
     metrics: cfg.FEATURE_BENCHMARK ? new SupplierMetrics(redis) : undefined,
+    onChaosReset: [],
+    adminExtensions: [],
   };
+
+  if (monitorStore) {
+    deps.circuitHeader = async () => {
+      const c = await monitorStore.getAllCircuits();
+      return formatCircuitHeader({ A: c.A.state, B: c.B.state });
+    };
+    deps.adminExtensions?.push(
+      monitorAdminRoutes(monitorStore, {
+        probeNow: async () => probeNow(await getTemporalClient()),
+      }),
+    );
+    deps.onChaosReset?.push(async () => {
+      await monitorStore.resetCircuits();
+      await resetMonitors(await getTemporalClient()).catch(() => undefined);
+    });
+  }
+
+  return deps;
 }
 
 async function main(): Promise<void> {

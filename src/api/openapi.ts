@@ -42,6 +42,10 @@ const hotelHeaders = {
   'X-Suppliers-Status': header('Per-supplier status', 'A=up;B=down'),
   'X-Result-Status': header('complete | partial', 'complete'),
   'X-Cache': header('MISS (workflow ran) | HIT (served from Redis)', 'MISS'),
+  'X-Circuit-State': header(
+    'FEATURE_MONITOR: circuit breaker state per supplier',
+    'A=closed;B=open',
+  ),
   'X-Response-Time': header('Server-side latency', '412.3ms'),
 };
 
@@ -362,6 +366,45 @@ export const openApiDocument = {
             bad: errorExample('VALIDATION_ERROR', 'Invalid request'),
           }),
         },
+      },
+    },
+    '/admin/circuits': {
+      get: {
+        tags: ['Admin'],
+        security: [{ adminToken: [] }],
+        summary: 'Circuit breaker state per supplier (FEATURE_MONITOR)',
+        responses: {
+          200: {
+            description: 'Circuits',
+            content: {
+              'application/json': {
+                example: {
+                  A: {
+                    state: 'closed',
+                    consecutiveFailures: 0,
+                    openUntil: null,
+                    lastCheckedAt: '2026-11-20T10:00:00.000Z',
+                  },
+                  B: {
+                    state: 'open',
+                    consecutiveFailures: 3,
+                    openUntil: '2026-11-20T10:00:30.000Z',
+                    lastCheckedAt: '2026-11-20T10:00:00.000Z',
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/admin/monitor/probe-now': {
+      post: {
+        tags: ['Admin'],
+        security: [{ adminToken: [] }],
+        summary:
+          'Signal both monitor workflows to probe now; waits for the result (FEATURE_MONITOR)',
+        responses: { 200: { description: 'getStats query result per supplier' } },
       },
     },
     '/admin/metrics/suppliers': {

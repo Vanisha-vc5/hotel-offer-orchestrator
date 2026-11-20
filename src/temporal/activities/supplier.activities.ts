@@ -2,6 +2,7 @@ import { ApplicationFailure, Context, log } from '@temporalio/activity';
 import { z } from 'zod';
 import { FailureTypes } from '../../domain/errors';
 import type { SupplierHotel, SupplierId } from '../../domain/types';
+import type { CircuitSnapshot } from '../../domain/circuit';
 import type { Config } from '../../infra/config';
 
 /** Strict per-record contract; anything else is dropped (not fatal). */
@@ -24,7 +25,13 @@ export const RetryableSupplierErrors = {
 export const NON_RETRYABLE_SUPPLIER_ERRORS = [
   FailureTypes.SupplierClientError,
   FailureTypes.SupplierInvalidPayload,
+  FailureTypes.CircuitOpen,
 ];
+
+/** Read side of the circuit breaker (FEATURE_MONITOR). */
+export interface CircuitReader {
+  getCircuit(supplier: SupplierId): Promise<CircuitSnapshot>;
+}
 
 function supplierUrl(cfg: Config, supplier: SupplierId, city: string): URL {
   const url = new URL(supplier === 'A' ? cfg.SUPPLIER_A_URL : cfg.SUPPLIER_B_URL);
@@ -40,7 +47,10 @@ export interface SupplierActivities {
   ): Promise<SupplierHotel[]>;
 }
 
-export function createSupplierActivities(cfg: Config): SupplierActivities {
+export function createSupplierActivities(
+  cfg: Config,
+  circuits?: CircuitReader,
+): SupplierActivities {
   return {
     /**
      * GETs a supplier's hotels for a city.
@@ -56,6 +66,19 @@ export function createSupplierActivities(cfg: Config): SupplierActivities {
       const timeout = AbortSignal.timeout(timeoutMs);
       const started = performance.now();
       const elapsed = (): number => Math.round(performance.now() - started);
+
+      if (circuits) {
+        // Fail fast while the monitor has the circuit open: no HTTP call, no retries.
+        // A Redis hiccup must not block fetching, so read errors fail open.
+        const circuit = await circuits.getCircuit(supplier).catch(() => undefined);
+        if (circuit?.state === 'open') {
+          log.warn('circuit open: skipping supplier', { ...meta, openUntil: circuit.openUntil });
+          throw ApplicationFailure.nonRetryable(
+            `Circuit open for Supplier ${supplier}`,
+            FailureTypes.CircuitOpen,
+          );
+        }
+      }
 
       ctx.heartbeat({ attempt });
       let res: Response;

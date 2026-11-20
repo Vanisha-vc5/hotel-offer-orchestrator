@@ -1765,6 +1765,346 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "11. Circuit breaker",
+      "description": "Enhancement 2: monitor-driven circuit breaker; resets at the end.",
+      "item": [
+        {
+          "name": "chaos: Supplier B down",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Start from a clean chaos state so this request is order-independent.",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/admin/chaos',",
+                  "  method: 'DELETE',",
+                  "  header: { 'x-admin-token': pm.variables.get('adminToken') || '' }",
+                  "}, function (err) { if (err) { console.log(err); } });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('chaos: Supplier B is down', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.include({ supplier: 'B', mode: 'down' });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/chaos/suppliers/B",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "chaos", "suppliers", "B"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"down\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "probe now (1/3)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('monitors probed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.have.all.keys('A', 'B');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/monitor/probe-now",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "monitor", "probe-now"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "probe now (2/3)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('monitors probed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.have.all.keys('A', 'B');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/monitor/probe-now",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "monitor", "probe-now"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "probe now (3/3)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('monitors probed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.have.all.keys('A', 'B');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/monitor/probe-now",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "monitor", "probe-now"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "/admin/circuits -> B open",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('B open after 3 failed probes, A closed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body.B.state).to.eql('open');",
+                  "  pm.expect(body.B.consecutiveFailures).to.be.at.least(3);",
+                  "  pm.expect(body.A.state).to.eql('closed');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/circuits",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "circuits"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "city=delhi -> fast partial (circuit open)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('200 and a bare JSON array (no envelope)', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body).to.be.an('array');",
+                  "});",
+                  "pm.test('every item has exactly name, price, supplier, commissionPct', function () {",
+                  "  body.forEach(function (h) {",
+                  "    pm.expect(Object.keys(h).sort()).to.eql(['commissionPct', 'name', 'price', 'supplier']);",
+                  "    pm.expect(['Supplier A', 'Supplier B']).to.include(h.supplier);",
+                  "  });",
+                  "});",
+                  "pm.test('sorted by price ascending', function () {",
+                  "  for (let i = 1; i < body.length; i++) pm.expect(body[i].price).to.be.at.least(body[i - 1].price);",
+                  "});",
+                  "",
+                  "pm.test('answers in under 1s: B is skipped, no timeouts or retries', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(1000);",
+                  "});",
+                  "pm.test('B still reported down; circuit header shows B=open', function () {",
+                  "  pm.expect(pm.response.headers.get('X-Suppliers-Status')).to.eql('A=up;B=down');",
+                  "  pm.expect(pm.response.headers.get('X-Result-Status')).to.eql('partial');",
+                  "  pm.expect(pm.response.headers.get('X-Circuit-State')).to.include('B=open');",
+                  "  pm.expect(body).to.have.lengthOf(6);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "/health -> monitor view",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('existing fields unchanged; monitor block added', function () {",
+                  "  pm.expect(body.status).to.eql('degraded');",
+                  "  pm.expect(body.dependencies.supplierB.status).to.eql('down');",
+                  "  pm.expect(body.dependencies.supplierB.monitor.circuit).to.eql('open');",
+                  "  pm.expect(body.dependencies.supplierA.monitor).to.have.all.keys('uptimePctLastHour', 'lastCheckedAt', 'consecutiveFailures', 'circuit');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "reset chaos (also resets circuits)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('chaos reset: both suppliers up', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.eql({ A: { mode: 'up', latencyMs: 0 }, B: { mode: 'up', latencyMs: 0 } });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/chaos",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "chaos"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "/admin/circuits -> B closed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('B closed again', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().B.state).to.eql('closed');",
+                  "  pm.expect(pm.response.json().B.consecutiveFailures).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/circuits",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "circuits"]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

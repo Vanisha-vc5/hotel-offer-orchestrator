@@ -227,3 +227,57 @@ newman run #1 / #2                               → 40 requests, 110 assertions
 npm run benchmark                                → 0 errors at every level; table in docs/benchmarks.md
 contract guard                                   → passing
 ```
+
+## Enhancement 2: Supplier monitor workflow and circuit breaker
+
+**What was added (`FEATURE_MONITOR`, default `true`)**
+
+- **`supplierMonitorWorkflow`** (`supplier-monitor-A` and `-B`), started idempotently by the worker at boot with
+  `USE_EXISTING`. If the flag is off, any leftover monitors are terminated.
+  - The loop is `probeSupplier` (2 s timeout, never throws), then the pure state machine, then `recordProbe`
+    (Redis), then a durable `condition(…, MONITOR_INTERVAL)` that a `probeNow` signal can wake early.
+  - It continues-as-new every `MONITOR_CONTINUE_AS_NEW_EVERY` iterations (or when the server suggests it),
+    carrying the circuit, recent samples, probe count and generation.
+  - It handles a `getStats` query and the `probeNow` and `resetCircuit` signals.
+- **`domain/circuit.ts`**: a pure `closed → open → half_open → closed` state machine
+  (`CIRCUIT_FAILURE_THRESHOLD` = 3, `CIRCUIT_COOLDOWN` = 30 s).
+- **`infra/monitorStore.ts`**: `circuit:{A|B}` hashes and `monitor:{A|B}:samples` sorted sets, trimmed to the
+  last hour.
+- **`fetchSupplierHotels` fails fast.** It throws a non-retryable `CircuitOpen` when the circuit is open. If Redis
+  can't be read, it fails open (the fetch goes ahead).
+- **API additions (new things only):**
+  - an `X-Circuit-State` header
+  - a `monitor` block under each supplier in `/health`
+  - `GET /admin/circuits` and `POST /admin/monitor/probe-now` (signal, then poll the query until the probe lands)
+  - `DELETE /admin/chaos` also resets circuits, in Redis and through a signal
+- **Tests:**
+  - 6 unit tests for the state machine
+  - a fail-fast activity test (no HTTP call, under 100 ms)
+  - 4 time-skipping workflow tests: opens after 3 failures, half-open success closes it after `env.sleep(31s)`,
+    reset, continue-as-new with the state carried over
+  - 6 integration tests, including flag off
+  - Postman folder "11. Circuit breaker" (10 requests)
+
+**Decisions**
+
+- **The workflow owns the state; Redis is the read model.** That makes the breaker deterministic and testable
+  with time skipping. The fetch activity only reads it.
+- **The reset signal resets state synchronously** inside the handler, so a probe that's still in flight applies
+  to the reset state and can't write a stale `open` afterwards.
+- **`probe-now` signals, then polls the `getStats` query** until `probeCount` increases (5 s bound). The HTTP
+  call is synchronous for Postman without depending on Workflow Update support.
+- **Probes send `x-health-probe`,** so they never inflate the Enhancement 1 call counters.
+- **Contract kept:** `X-Suppliers-Status` still reports `B=down` when the circuit is open. `X-Circuit-State` is
+  additive.
+
+**Problems found:** none beyond typings. All 4 workflow tests passed on the first run.
+
+**Verification**
+
+```
+npm run lint && npm run typecheck && npm test   → Test Files 14 passed, Tests 117 passed
+docker compose up --build -d                     → all 6 services healthy; 2 monitor workflows Running
+newman run #1 / #2                               → 50 requests, 123 assertions, 0 failed (both runs)
+live: B down + 3× probe-now → circuit open → /api/hotels 200 partial in 0.15 s (vs ~2.2 s of retries)
+contract guard                                   → passing
+```

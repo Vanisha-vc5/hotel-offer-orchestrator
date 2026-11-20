@@ -33,6 +33,8 @@ export interface AppDeps {
   /** Hooks and admin routes contributed by v2 feature modules. */
   onChaosReset?: AdminDeps['onChaosReset'];
   adminExtensions?: AdminDeps['extensions'];
+  /** FEATURE_MONITOR: X-Circuit-State header source. */
+  circuitHeader?: () => Promise<string>;
 }
 
 /** Builds the Express app from injected dependencies (exported for supertest). */
@@ -82,6 +84,7 @@ export function createApp(deps: AppDeps): Express {
     hotelsRouter(deps.hotelService, {
       allowCoalescingOverride: cfg.FEATURE_BENCHMARK,
       adminToken: cfg.ADMIN_TOKEN,
+      circuitHeader: deps.circuitHeader,
     }),
   );
   app.use('/health', healthRouter(deps.healthService));

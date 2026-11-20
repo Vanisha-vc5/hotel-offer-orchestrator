@@ -27,6 +27,8 @@ export interface HotelsRouterOptions {
   /** FEATURE_BENCHMARK: honour `X-Coalescing: off` from trusted operators. */
   allowCoalescingOverride: boolean;
   adminToken?: string;
+  /** FEATURE_MONITOR: value for the X-Circuit-State header, e.g. `A=closed;B=open`. */
+  circuitHeader?: () => Promise<string>;
 }
 
 export function hotelsRouter(service: HotelService, opts: HotelsRouterOptions): Router {
@@ -69,6 +71,10 @@ export function hotelsRouter(service: HotelService, opts: HotelsRouterOptions): 
       'hotels served',
     );
     setMetaHeaders(res, result);
+    if (opts.circuitHeader) {
+      const circuits = await opts.circuitHeader().catch(() => undefined);
+      if (circuits) res.setHeader('X-Circuit-State', circuits);
+    }
     res.setHeader('X-Response-Time', elapsedMs(req));
     res.status(200).json(result.offers.map(toPublicOffer));
   });

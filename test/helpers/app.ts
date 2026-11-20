@@ -16,7 +16,10 @@ import type { WorkflowRunner } from '../../src/api/services/hotelService';
 import { selectBestOffers } from '../../src/domain/selectBestOffers';
 import type { SupplierHotel, SupplierId, SuppliersStatus } from '../../src/domain/types';
 import { loadConfig } from '../../src/infra/config';
+import { formatCircuitHeader } from '../../src/domain/circuit';
 import { HotelRepository } from '../../src/infra/hotelRepository';
+import { MonitorStore } from '../../src/infra/monitorStore';
+import { monitorAdminRoutes } from '../../src/api/routes/monitor.routes';
 import { createRedis } from '../../src/infra/redis';
 import { ChaosStore } from '../../src/mocks/chaos';
 import { SupplierMetrics } from '../../src/mocks/supplierMetrics';
@@ -96,6 +99,9 @@ export interface TestApp {
   chaos: ChaosStore;
   redis: Redis;
   temporalUp: { value: boolean };
+  monitorStore: MonitorStore;
+  /** Fake Temporal control plane for the monitor workflows. */
+  monitorControl: { probeCalls: number; resets: number };
   close(): Promise<void>;
 }
 
@@ -123,16 +129,46 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
     HEALTH_CHECK_TIMEOUT_MS: '500',
     ...env,
   });
+  const monitorStore = new MonitorStore(redis);
+  const monitorControl = { probeCalls: 0, resets: 0 };
   const deps: AppDeps = {
     cfg,
     repository,
     chaos,
     metrics: cfg.FEATURE_BENCHMARK ? new SupplierMetrics(redis) : undefined,
     hotelService: new HotelService(runner.run, repository),
-    healthService: new HealthService(cfg, repository, async () => {
-      if (!temporalUp.value) throw new Error('14 UNAVAILABLE: connection refused');
-    }),
+    healthService: new HealthService(
+      cfg,
+      repository,
+      async () => {
+        if (!temporalUp.value) throw new Error('14 UNAVAILABLE: connection refused');
+      },
+      cfg.FEATURE_MONITOR ? (s) => monitorStore.summary(s) : undefined,
+    ),
+    onChaosReset: [],
+    adminExtensions: [],
   };
+  if (cfg.FEATURE_MONITOR) {
+    deps.circuitHeader = async () => {
+      const c = await monitorStore.getAllCircuits();
+      return formatCircuitHeader({ A: c.A.state, B: c.B.state });
+    };
+    deps.adminExtensions?.push(
+      monitorAdminRoutes(monitorStore, {
+        probeNow: async () => {
+          monitorControl.probeCalls++;
+          return {
+            A: { probeCount: monitorControl.probeCalls },
+            B: { probeCount: monitorControl.probeCalls },
+          };
+        },
+      }),
+    );
+    deps.onChaosReset?.push(async () => {
+      await monitorStore.resetCircuits();
+      monitorControl.resets++;
+    });
+  }
   server.on('request', createApp(deps));
 
   return {
@@ -143,7 +179,10 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
     chaos,
     redis,
     temporalUp,
+    monitorStore,
+    monitorControl,
     async close() {
+      await monitorStore.resetCircuits();
       await chaos.reset();
       server.closeAllConnections();
       await new Promise<void>((r) => server.close(() => r()));

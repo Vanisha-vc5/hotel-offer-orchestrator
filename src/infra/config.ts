@@ -70,6 +70,14 @@ const EnvSchema = z.object({
   /** Request coalescing (one workflow run per city). false only for comparisons. */
   COALESCING_ENABLED: bool.default(true),
 
+  /** Enhancement 2: supplier monitor workflows + circuit breaker. */
+  FEATURE_MONITOR: bool.default(true),
+  MONITOR_INTERVAL: duration.default('15s'),
+  MONITOR_PROBE_TIMEOUT_MS: ms.default(2_000),
+  MONITOR_CONTINUE_AS_NEW_EVERY: z.coerce.number().int().positive().default(100),
+  CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(3),
+  CIRCUIT_COOLDOWN: duration.default('30s'),
+
   // Chaos / admin
   ENABLE_CHAOS: bool.default(true),
   ADMIN_TOKEN: z

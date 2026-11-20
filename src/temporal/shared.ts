@@ -11,6 +11,8 @@ import type {
   SuppliersStatus,
 } from '../domain/types';
 import type { Duration } from '@temporalio/common';
+import { defineQuery, defineSignal } from '@temporalio/workflow';
+import type { CircuitSnapshot } from '../domain/circuit';
 
 export const TASK_QUEUE = 'hotel-offers';
 export const WORKFLOW_ID_PREFIX = 'hotel-offers-';
@@ -82,3 +84,54 @@ export interface PersistPayload extends HotelOffersWorkflowResult {
 export function formatSuppliersStatus(s: SuppliersStatus): string {
   return `A=${s.A};B=${s.B}`;
 }
+
+// ---------------------------------------------------------------------------
+// Enhancement 2: supplier monitor workflows
+// ---------------------------------------------------------------------------
+
+export const MONITOR_WORKFLOW_PREFIX = 'supplier-monitor-';
+
+export function monitorWorkflowId(supplier: SupplierId): string {
+  return `${MONITOR_WORKFLOW_PREFIX}${supplier}`;
+}
+
+export interface MonitorSample {
+  at: number;
+  ok: boolean;
+  latencyMs: number;
+  status?: number;
+  error?: string;
+}
+
+/** State carried across continue-as-new so history stays bounded but nothing is lost. */
+export interface MonitorCarry {
+  circuit: CircuitSnapshot;
+  recent: MonitorSample[];
+  probeCount: number;
+  generation: number;
+}
+
+export interface MonitorInput {
+  supplier: SupplierId;
+  intervalMs: number;
+  failureThreshold: number;
+  cooldownMs: number;
+  continueAsNewEvery: number;
+  carry?: MonitorCarry;
+}
+
+export interface MonitorStats {
+  supplier: SupplierId;
+  circuit: CircuitSnapshot;
+  recent: MonitorSample[];
+  /** Total probes since the monitor was first started (survives continue-as-new). */
+  probeCount: number;
+  /** Probes in the current run (resets on continue-as-new). */
+  iterations: number;
+  /** Number of continue-as-new hops so far. */
+  generation: number;
+}
+
+export const probeNowSignal = defineSignal('probeNow');
+export const resetCircuitSignal = defineSignal('resetCircuit');
+export const getStatsQuery = defineQuery<MonitorStats>('getStats');

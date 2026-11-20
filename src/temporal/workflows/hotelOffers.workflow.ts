@@ -40,6 +40,7 @@ export async function hotelOffersWorkflow(
       nonRetryableErrorTypes: [
         FailureTypes.SupplierClientError,
         FailureTypes.SupplierInvalidPayload,
+        FailureTypes.CircuitOpen,
       ],
     },
   });

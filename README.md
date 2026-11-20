@@ -56,12 +56,16 @@ flowchart LR
     wf[hotelOffersWorkflow] --> actA[fetchSupplierHotels A]
     wf --> actB[fetchSupplierHotels B]
     wf --> persist[persistOffers]
+    mon["supplierMonitorWorkflow ×2<br/>(long-running, continue-as-new)"] --> probe[probeSupplier]
   end
 
   temporal <-->|task queue hotel-offers| wf
   actA -->|HTTP| mocks
   actB -->|HTTP| mocks
   persist -->|MULTI/EXEC| redis
+  probe -->|every 15s or probe-now| mocks
+  mon -->|circuit + 1h samples| redis
+  actB -.->|circuit open? fail fast| redis
   mocks -->|chaos state| redis
   health -.->|probes| mocks & redis & temporal
 ```
@@ -129,6 +133,11 @@ sequenceDiagram
   and the savings, plus totals.
 - ⭐ **Live progress query.** The workflow answers a `status` query (`fetching → selecting → persisting → done`
   plus per-supplier state).
+- ⭐ **Supplier monitors and a circuit breaker.** Two long-running workflows (`supplier-monitor-A/B`) probe
+  each supplier on a durable timer and continue-as-new every 100 iterations. They drive a
+  `closed → open → half_open` breaker stored in Redis. While a circuit is open, requests skip that supplier
+  instantly: a partial result in about 0.15 s instead of about 2 s of retries, plus `X-Circuit-State: A=closed;B=open`.
+  `/health` gains a per-supplier `monitor` block (uptime % over the last hour, last check, consecutive failures, circuit).
 - ⭐ **Chaos engineering.** Each supplier can be set to `down`, `slow` or `flaky` over HTTP, with state shared through Redis.
 - `/health` probes both suppliers, Redis and Temporal in parallel with real latency and reports `up`, `degraded`
   or `down`. There are also `/health/live` and `/health/ready`.
@@ -316,14 +325,16 @@ fixture from the brief), `mumbai`, `bangalore` and `goa` (Supplier A only). One 
 These endpoints are enabled when `ENABLE_CHAOS=true`. If `ADMIN_TOKEN` is set, every `/admin/*` call needs the
 `x-admin-token` header.
 
-| Endpoint                                | Body                                                    | Effect                                            |
-| --------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- |
-| `POST /admin/chaos/suppliers/:supplier` | `{"mode":"up"\|"down"\|"slow"\|"flaky","latencyMs"?:n}` | set a supplier's failure mode                     |
-| `GET /admin/chaos`                      |                                                         | current modes                                     |
-| `DELETE /admin/chaos`                   |                                                         | reset both to `up`                                |
-| `DELETE /admin/cache/:city`             |                                                         | clear one city's cache (always available)         |
-| `GET /admin/metrics/suppliers`          |                                                         | supplier data-call counters (`FEATURE_BENCHMARK`) |
-| `DELETE /admin/metrics/suppliers`       |                                                         | reset the counters (`FEATURE_BENCHMARK`)          |
+| Endpoint                                | Body                                                    | Effect                                                                        |
+| --------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `POST /admin/chaos/suppliers/:supplier` | `{"mode":"up"\|"down"\|"slow"\|"flaky","latencyMs"?:n}` | set a supplier's failure mode                                                 |
+| `GET /admin/chaos`                      |                                                         | current modes                                                                 |
+| `DELETE /admin/chaos`                   |                                                         | reset both to `up`                                                            |
+| `DELETE /admin/cache/:city`             |                                                         | clear one city's cache (always available)                                     |
+| `GET /admin/circuits`                   |                                                         | circuit state per supplier (`FEATURE_MONITOR`)                                |
+| `POST /admin/monitor/probe-now`         |                                                         | signal both monitors to probe now and wait for the result (`FEATURE_MONITOR`) |
+| `GET /admin/metrics/suppliers`          |                                                         | supplier data-call counters (`FEATURE_BENCHMARK`)                             |
+| `DELETE /admin/metrics/suppliers`       |                                                         | reset the counters (`FEATURE_BENCHMARK`)                                      |
 
 The modes behave like this:
 
@@ -404,6 +415,32 @@ hotels" is a cached `HIT` and not a workflow run on every request.
 While a run for `delhi` is in flight, 50 concurrent requests attach to it and the suppliers are called **once**.
 After it closes, the next request starts a fresh run. `X-Workflow-Run-Id` shows this: coalesced requests share
 a run ID.
+
+**A circuit breaker driven by the monitor, not by request failures.** The breaker opens on
+`CIRCUIT_FAILURE_THRESHOLD` (3) consecutive failed **monitor probes**, and the first probe after
+`CIRCUIT_COOLDOWN` (30 s) runs half-open: success closes the circuit, failure re-opens it. A request-driven
+breaker would make the decision depend on traffic shape. With no traffic it never learns a supplier recovered,
+and with heavy traffic it trips on a burst of user requests that all share one slow attempt. Probes run at a
+fixed, known rate, so the breaker is predictable, testable on Temporal's time-skipping server, and separate
+from request latency. The monitor workflow owns the state machine (`domain/circuit.ts`, pure) and persists
+every sample and transition to Redis. `fetchSupplierHotels` only _reads_ the circuit and throws a
+non-retryable `CircuitOpen`, which the request workflow already treats as "supplier down", so the graded
+headers stay the same (`X-Suppliers-Status: …B=down`) and only `X-Circuit-State` is new. It's a durable
+timer (`condition(…, interval)`), so a worker restart doesn't lose the schedule, and continue-as-new every
+`MONITOR_CONTINUE_AS_NEW_EVERY` (100) iterations keeps history bounded while carrying the circuit and counters.
+`DELETE /admin/chaos` resets circuits too, through Redis and a `resetCircuit` signal, so test runs stay repeatable.
+
+```mermaid
+stateDiagram-v2
+  [*] --> closed
+  closed --> closed: probe ok / failures < 3
+  closed --> open: 3rd consecutive failed probe
+  open --> open: probe during cooldown
+  open --> half_open: first probe after 30s cooldown
+  half_open --> closed: probe ok
+  half_open --> open: probe fails (new cooldown)
+  open --> closed: DELETE /admin/chaos (reset)
+```
 
 **No envelope in the response.** The contract asks for a bare array, and keeping metadata in headers makes
 the body exactly the domain data. Clients can `JSON.parse` it straight into a list, and HTTP caches and
@@ -496,6 +533,10 @@ list of every problem. Compose reads `.env`; `.env.example` has the defaults.
 | `ADMIN_TOKEN`                                                                        | –                                        | if set, `/admin/*` requires `x-admin-token`                                                              |
 | `FEATURE_BENCHMARK`                                                                  | `true`                                   | supplier call counters, `X-Coalescing: off` and `x-benchmark: 1` rate-limit bypass for trusted operators |
 | `COALESCING_ENABLED`                                                                 | `true`                                   | `false` gives every request its own run (comparison only)                                                |
+| `FEATURE_MONITOR`                                                                    | `true`                                   | supplier monitor workflows, circuit breaker, `X-Circuit-State`, `/health` monitor block                  |
+| `MONITOR_INTERVAL` / `MONITOR_PROBE_TIMEOUT_MS`                                      | `15s` / `2000`                           | probe cadence and per-probe timeout                                                                      |
+| `MONITOR_CONTINUE_AS_NEW_EVERY`                                                      | `100`                                    | iterations per monitor run before continue-as-new                                                        |
+| `CIRCUIT_FAILURE_THRESHOLD` / `CIRCUIT_COOLDOWN`                                     | `3` / `30s`                              | consecutive failed probes to open; time before a half-open probe                                         |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD`                                                | `temporal` / `temporal`                  | compose only (Temporal persistence)                                                                      |
 | `API_HOST_PORT` / `REDIS_HOST_PORT` / `TEMPORAL_HOST_PORT` / `TEMPORAL_UI_HOST_PORT` | `3000` / `6379` / `7233` / `8080`        | compose host bindings; can be `127.0.0.1:PORT`                                                           |
 

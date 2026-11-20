@@ -25,6 +25,7 @@ x-app-env: &app-env
   # v2 feature flags (default on; false = exact v1 behaviour)
   FEATURE_BENCHMARK: ${FEATURE_BENCHMARK:-true}
   COALESCING_ENABLED: ${COALESCING_ENABLED:-true}
+  FEATURE_MONITOR: ${FEATURE_MONITOR:-true}
 
 services:
   postgresql:

@@ -1,5 +1,6 @@
 import type { Config } from '../../infra/config';
 import type { HotelRepository } from '../../infra/hotelRepository';
+import type { MonitorSummary } from '../../infra/monitorStore';
 
 export type DependencyStatus = 'up' | 'down';
 export type OverallStatus = 'up' | 'degraded' | 'down';
@@ -8,6 +9,8 @@ export interface DependencyHealth {
   status: DependencyStatus;
   latencyMs: number;
   error?: string;
+  /** Enhancement 2 (FEATURE_MONITOR): background monitor view of this supplier. */
+  monitor?: MonitorSummary;
 }
 
 export interface HealthReport {
@@ -25,6 +28,9 @@ export interface ReadinessReport {
 
 /** Calls the Temporal frontend (e.g. GetSystemInfo) and resolves when it answers. */
 export type TemporalProbe = (deadlineMs: number) => Promise<void>;
+
+/** Optional monitor summary source (FEATURE_MONITOR). */
+export type MonitorSource = (supplier: 'A' | 'B') => Promise<MonitorSummary>;
 
 class TimeoutError extends Error {}
 
@@ -68,7 +74,18 @@ export class HealthService {
     private readonly cfg: Config,
     private readonly repository: HotelRepository,
     private readonly temporalProbe: TemporalProbe,
+    private readonly monitorSource?: MonitorSource,
   ) {}
+
+  /** Adds the monitor view to a supplier entry; existing fields are untouched. */
+  private async withMonitor(supplier: 'A' | 'B', dep: DependencyHealth): Promise<DependencyHealth> {
+    if (!this.monitorSource) return dep;
+    try {
+      return { ...dep, monitor: await this.monitorSource(supplier) };
+    } catch {
+      return dep;
+    }
+  }
 
   markShuttingDown(): void {
     this.shuttingDown = true;
@@ -99,8 +116,8 @@ export class HealthService {
 
   async check(): Promise<HealthReport> {
     const [supplierA, supplierB, redis, temporal] = await Promise.all([
-      this.supplier(this.cfg.SUPPLIER_A_URL),
-      this.supplier(this.cfg.SUPPLIER_B_URL),
+      this.supplier(this.cfg.SUPPLIER_A_URL).then((d) => this.withMonitor('A', d)),
+      this.supplier(this.cfg.SUPPLIER_B_URL).then((d) => this.withMonitor('B', d)),
       this.redis(),
       this.temporal(),
     ]);

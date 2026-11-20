@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
+import { Client } from '@temporalio/client';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
 import type { WorkerOptions } from '@temporalio/worker';
 import { ConfigError, config, loadConfig } from '../infra/config';
@@ -8,6 +9,8 @@ import { logger } from '../infra/logger';
 import { closeRedis, getRedis } from '../infra/redis';
 import { retryWithBackoff } from '../infra/retry';
 import { HotelRepository } from '../infra/hotelRepository';
+import { MonitorStore } from '../infra/monitorStore';
+import { ensureMonitors, stopMonitors } from './monitorClient';
 import { createActivities } from './activities';
 import { temporalConnectionSettings } from './client';
 import { PinoTemporalLogger } from './logger';
@@ -58,15 +61,23 @@ async function main(): Promise<void> {
   );
 
   const repository = new HotelRepository(getRedis());
+  const monitorStore = new MonitorStore(getRedis());
   const worker = await Worker.create({
     connection,
     namespace: cfg.TEMPORAL_NAMESPACE,
     taskQueue: TASK_QUEUE,
-    activities: createActivities({ repository, cfg }),
+    activities: createActivities({ repository, cfg, monitorStore }),
     ...workflowSource(),
   });
 
   const health = startHealthServer(worker, cfg.WORKER_HEALTH_PORT);
+
+  // Enhancement 2: long-running supplier monitors (idempotent start at boot).
+  const client = new Client({ connection, namespace: cfg.TEMPORAL_NAMESPACE });
+  const monitors = cfg.FEATURE_MONITOR ? ensureMonitors(client, cfg) : stopMonitors(client);
+  monitors.catch((err: unknown) =>
+    logger.error({ err: (err as Error).message }, 'could not start supplier monitors'),
+  );
   const shutdown = (signal: string): void => {
     logger.info({ signal }, 'worker shutdown requested; finishing in-flight tasks');
     worker.shutdown();
