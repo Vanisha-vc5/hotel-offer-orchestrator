@@ -135,3 +135,32 @@ export interface MonitorStats {
 export const probeNowSignal = defineSignal('probeNow');
 export const resetCircuitSignal = defineSignal('resetCircuit');
 export const getStatsQuery = defineQuery<MonitorStats>('getStats');
+
+// ---------------------------------------------------------------------------
+// Enhancement 3: scheduled cache warm-up
+// ---------------------------------------------------------------------------
+
+export const WARMUP_SCHEDULE_ID = 'cache-warmup';
+export const WARMUP_WORKFLOW_ID = 'cache-warmup-run';
+
+export interface WarmupInput {
+  cities: string[];
+  tuning?: ActivityTuning;
+  workflowExecutionTimeout?: Duration;
+}
+
+export type WarmupCityStatus = 'refreshed' | 'coalesced' | 'failed';
+
+export interface WarmupCityResult {
+  city: string;
+  /** refreshed: our child run fetched; coalesced: a run for this city was already in flight. */
+  status: WarmupCityStatus;
+  resultStatus?: ResultStatus;
+  offers?: number;
+  suppliersStatus?: SuppliersStatus;
+  error?: string;
+}
+
+export interface WarmupResult {
+  cities: WarmupCityResult[];
+}

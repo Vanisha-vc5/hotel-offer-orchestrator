@@ -13,6 +13,8 @@ import { probeNow, resetMonitors } from '../temporal/monitorClient';
 import { createApp } from './app';
 import type { AppDeps } from './app';
 import { monitorAdminRoutes } from './routes/monitor.routes';
+import { warmupAdminRoutes } from './routes/warmup.routes';
+import { runWarmupNow, warmupStatus } from '../temporal/warmupClient';
 import { HealthService } from './services/healthService';
 import { HotelService } from './services/hotelService';
 
@@ -64,6 +66,19 @@ function buildDeps(cfg: Config): AppDeps {
     deps.onChaosReset?.push(async () => {
       await monitorStore.resetCircuits();
       await resetMonitors(await getTemporalClient()).catch(() => undefined);
+    });
+  }
+
+  if (cfg.FEATURE_WARMUP) {
+    deps.adminExtensions?.push(
+      warmupAdminRoutes({
+        status: async () => warmupStatus(await getTemporalClient(), cfg),
+        runNow: async () => runWarmupNow(await getTemporalClient()),
+      }),
+    );
+    // A warm-up during a chaos test can cache partial data; drop it on reset.
+    deps.onChaosReset?.push(async () => {
+      await Promise.all(cfg.WARMUP_CITIES.map((city) => repository.deleteCity(city)));
     });
   }
 

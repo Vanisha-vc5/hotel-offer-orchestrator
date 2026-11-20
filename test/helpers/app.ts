@@ -20,6 +20,7 @@ import { formatCircuitHeader } from '../../src/domain/circuit';
 import { HotelRepository } from '../../src/infra/hotelRepository';
 import { MonitorStore } from '../../src/infra/monitorStore';
 import { monitorAdminRoutes } from '../../src/api/routes/monitor.routes';
+import { warmupAdminRoutes } from '../../src/api/routes/warmup.routes';
 import { createRedis } from '../../src/infra/redis';
 import { ChaosStore } from '../../src/mocks/chaos';
 import { SupplierMetrics } from '../../src/mocks/supplierMetrics';
@@ -102,6 +103,7 @@ export interface TestApp {
   monitorStore: MonitorStore;
   /** Fake Temporal control plane for the monitor workflows. */
   monitorControl: { probeCalls: number; resets: number };
+  warmupControl: { runs: number };
   close(): Promise<void>;
 }
 
@@ -131,6 +133,7 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
   });
   const monitorStore = new MonitorStore(redis);
   const monitorControl = { probeCalls: 0, resets: 0 };
+  const warmupControl = { runs: 0 };
   const deps: AppDeps = {
     cfg,
     repository,
@@ -169,6 +172,24 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
       monitorControl.resets++;
     });
   }
+  if (cfg.FEATURE_WARMUP) {
+    deps.adminExtensions?.push(
+      warmupAdminRoutes({
+        status: async () => ({
+          scheduleId: 'cache-warmup',
+          cities: cfg.WARMUP_CITIES,
+          runs: warmupControl.runs,
+        }),
+        runNow: async () => {
+          warmupControl.runs++;
+          return { triggered: true, run: { status: 'COMPLETED' } };
+        },
+      }),
+    );
+    deps.onChaosReset?.push(async () => {
+      await Promise.all(cfg.WARMUP_CITIES.map((city) => repository.deleteCity(city)));
+    });
+  }
   server.on('request', createApp(deps));
 
   return {
@@ -181,6 +202,7 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
     temporalUp,
     monitorStore,
     monitorControl,
+    warmupControl,
     async close() {
       await monitorStore.resetCircuits();
       await chaos.reset();

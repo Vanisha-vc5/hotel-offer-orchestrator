@@ -78,6 +78,29 @@ const EnvSchema = z.object({
   CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(3),
   CIRCUIT_COOLDOWN: duration.default('30s'),
 
+  /** Enhancement 3: Temporal Schedule that pre-warms the cache. */
+  FEATURE_WARMUP: bool.default(true),
+  WARMUP_CITIES: z
+    .string()
+    .default('delhi,mumbai,bangalore')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((c) => c.trim().replace(/\s+/g, ' ').toLowerCase())
+        .filter(Boolean),
+    )
+    .pipe(
+      z
+        .array(
+          z
+            .string()
+            .max(50)
+            .regex(/^[\p{L} -]+$/u, 'invalid city in WARMUP_CITIES'),
+        )
+        .min(1),
+    ),
+  WARMUP_INTERVAL: duration.default('2m'),
+
   // Chaos / admin
   ENABLE_CHAOS: bool.default(true),
   ADMIN_TOKEN: z

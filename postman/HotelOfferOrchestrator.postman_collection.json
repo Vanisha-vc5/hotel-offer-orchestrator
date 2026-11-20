@@ -2105,6 +2105,140 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "12. Cache warm-up",
+      "description": "Enhancement 3: Temporal Schedule cache-warmup (child workflows, overlap SKIP).",
+      "item": [
+        {
+          "name": "run warm-up now",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('schedule triggered (200) or skipped by the SKIP overlap policy (202)', function () {",
+                  "  pm.expect([200, 202]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('every warm-up city refreshed (or coalesced with a running user request)', function () {",
+                  "    pm.expect(body.run.status).to.eql('COMPLETED');",
+                  "    pm.expect(body.run.results.map(function (r) { return r.city; })).to.eql(['delhi', 'mumbai', 'bangalore']);",
+                  "    body.run.results.forEach(function (r) { pm.expect(['refreshed', 'coalesced']).to.include(r.status); });",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/warmup/run-now",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "warmup", "run-now"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /admin/warmup",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('schedule status with next and last run', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body.scheduleId).to.eql('cache-warmup');",
+                  "  pm.expect(body.paused).to.eql(false);",
+                  "  pm.expect(body.totalRuns).to.be.at.least(1);",
+                  "  pm.expect(body.nextRunAt).to.be.a('string');",
+                  "  pm.expect(body.lastRun).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/warmup",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "warmup"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "warmed city -> X-Cache: HIT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('200 and a bare JSON array (no envelope)', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body).to.be.an('array');",
+                  "});",
+                  "pm.test('every item has exactly name, price, supplier, commissionPct', function () {",
+                  "  body.forEach(function (h) {",
+                  "    pm.expect(Object.keys(h).sort()).to.eql(['commissionPct', 'name', 'price', 'supplier']);",
+                  "    pm.expect(['Supplier A', 'Supplier B']).to.include(h.supplier);",
+                  "  });",
+                  "});",
+                  "pm.test('sorted by price ascending', function () {",
+                  "  for (let i = 1; i < body.length; i++) pm.expect(body[i].price).to.be.at.least(body[i - 1].price);",
+                  "});",
+                  "",
+                  "pm.test('served from the warm cache', function () {",
+                  "  pm.expect(pm.response.headers.get('X-Cache')).to.eql('HIT');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=mumbai&minPrice=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "mumbai"
+                },
+                {
+                  "key": "minPrice",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

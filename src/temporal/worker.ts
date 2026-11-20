@@ -11,6 +11,7 @@ import { retryWithBackoff } from '../infra/retry';
 import { HotelRepository } from '../infra/hotelRepository';
 import { MonitorStore } from '../infra/monitorStore';
 import { ensureMonitors, stopMonitors } from './monitorClient';
+import { deleteWarmupSchedule, ensureWarmupSchedule } from './warmupClient';
 import { createActivities } from './activities';
 import { temporalConnectionSettings } from './client';
 import { PinoTemporalLogger } from './logger';
@@ -77,6 +78,14 @@ async function main(): Promise<void> {
   const monitors = cfg.FEATURE_MONITOR ? ensureMonitors(client, cfg) : stopMonitors(client);
   monitors.catch((err: unknown) =>
     logger.error({ err: (err as Error).message }, 'could not start supplier monitors'),
+  );
+
+  // Enhancement 3: cache warm-up Schedule (create or update; deleted when the flag is off).
+  const warmup = cfg.FEATURE_WARMUP
+    ? ensureWarmupSchedule(client, cfg)
+    : deleteWarmupSchedule(client);
+  warmup.catch((err: unknown) =>
+    logger.error({ err: (err as Error).message }, 'could not configure warm-up schedule'),
   );
   const shutdown = (signal: string): void => {
     logger.info({ signal }, 'worker shutdown requested; finishing in-flight tasks');

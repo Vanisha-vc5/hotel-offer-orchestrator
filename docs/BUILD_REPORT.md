@@ -281,3 +281,52 @@ newman run #1 / #2                               → 50 requests, 123 assertions
 live: B down + 3× probe-now → circuit open → /api/hotels 200 partial in 0.15 s (vs ~2.2 s of retries)
 contract guard                                   → passing
 ```
+
+## Enhancement 3: Scheduled cache warm-up with a Temporal Schedule
+
+**What was added (`FEATURE_WARMUP`, default `true`)**
+
+- **`WARMUP_CITIES`** (default `delhi,mumbai,bangalore`, each validated like `city`) and **`WARMUP_INTERVAL`**
+  (default `2m`).
+- **The `cache-warmup` Schedule.** The worker creates it at boot, or `update()`s it in place when it already
+  exists (`ScheduleAlreadyRunning`). It uses overlap `SKIP` and a 1-minute catch-up window. With the flag off,
+  the schedule is deleted.
+- **`cacheWarmupWorkflow`** runs one child `hotelOffersWorkflow` per city in parallel, with ID
+  `hotel-offers-<city>`, `parentClosePolicy: ABANDON` and `ALLOW_DUPLICATE`. It reports each city as
+  `refreshed`, `coalesced` or `failed`.
+- **Admin routes:** `GET /admin/warmup` (interval, cities, paused, total runs, next run, last run with per-city
+  results) and `POST /admin/warmup/run-now` (trigger, then wait for the run; `202` if `SKIP` dropped it).
+- **`DELETE /admin/chaos`** also deletes the warm-up cities' caches.
+- **Tests:**
+  - time-skipping workflow tests: all cities refreshed or failed; a running user run gives `coalesced`
+  - a dev-server Schedule test: create, then update (interval 2m → 5m, overlap `SKIP`), run-now gives 3 cities
+    `refreshed`, status, and an idempotent delete
+  - integration tests for the routes, the chaos cache-clear and flag off
+  - Postman folder "12. Cache warm-up": run-now, status, and a warmed city returning `X-Cache: HIT`
+
+**Decisions**
+
+- **Children can't use `USE_EXISTING`.** I checked the 1.26 typings: `ChildWorkflowOptions` omits
+  `workflowIdConflictPolicy`. Coalescing therefore works natively in one direction (user attaches to the child)
+  and by catching `WorkflowExecutionAlreadyStartedError` in the other (`coalesced`).
+- **`ABANDON`** so terminating the parent never cancels a child that user requests are attached to.
+- **Schedule tests run on the dev server** (`createLocal`), because the time-skipping test server doesn't
+  implement Schedules.
+
+**Problems found and fixed**
+
+- A heredoc stripped regex backslashes in the new `WARMUP_CITIES` validator (`/\s+/` became `/s+/`). Validating
+  the config immediately caught it, and it was fixed with exact edits.
+- One test assumed mumbai has 7 hotels. It has 6, because the deliberately malformed empty-name record is
+  skipped. The test was wrong, not the code.
+
+**Verification**
+
+```
+npm run lint && npm run typecheck && npm test   → Test Files 16 passed, Tests 123 passed
+docker compose up --build -d                     → all 6 services healthy
+newman run #1 / #2                               → 53 requests, 130 assertions, 0 failed (both runs)
+live: temporal schedule describe cache-warmup    → OverlapPolicy Skip, 2m interval; last run COMPLETED,
+      delhi/mumbai/bangalore refreshed (complete)
+contract guard                                   → passing
+```

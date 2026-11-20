@@ -407,6 +407,49 @@ export const openApiDocument = {
         responses: { 200: { description: 'getStats query result per supplier' } },
       },
     },
+    '/admin/warmup': {
+      get: {
+        tags: ['Admin'],
+        security: [{ adminToken: [] }],
+        summary: 'Cache warm-up Schedule: next run, last run, per-city results (FEATURE_WARMUP)',
+        responses: {
+          200: {
+            description: 'Schedule status',
+            content: {
+              'application/json': {
+                example: {
+                  scheduleId: 'cache-warmup',
+                  every: '2m',
+                  cities: ['delhi', 'mumbai', 'bangalore'],
+                  paused: false,
+                  totalRuns: 12,
+                  nextRunAt: '2026-11-20T10:02:00.000Z',
+                  lastRun: {
+                    status: 'COMPLETED',
+                    results: [
+                      { city: 'delhi', status: 'refreshed', resultStatus: 'complete', offers: 7 },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/admin/warmup/run-now': {
+      post: {
+        tags: ['Admin'],
+        security: [{ adminToken: [] }],
+        summary: 'Trigger the warm-up Schedule now and wait for the run (FEATURE_WARMUP)',
+        responses: {
+          200: { description: 'Run taken; per-city results included' },
+          202: {
+            description: 'Skipped by the SKIP overlap policy (a warm-up was already running)',
+          },
+        },
+      },
+    },
     '/admin/metrics/suppliers': {
       get: {
         tags: ['Admin'],

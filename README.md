@@ -138,6 +138,10 @@ sequenceDiagram
   `closed → open → half_open` breaker stored in Redis. While a circuit is open, requests skip that supplier
   instantly: a partial result in about 0.15 s instead of about 2 s of retries, plus `X-Circuit-State: A=closed;B=open`.
   `/health` gains a per-supplier `monitor` block (uptime % over the last hour, last check, consecutive failures, circuit).
+- ⭐ **Scheduled cache warm-up.** A Temporal **Schedule** (`cache-warmup`, every 2 minutes, overlap `SKIP`)
+  refreshes `delhi`, `mumbai` and `bangalore` through child `hotelOffersWorkflow`s that use the same IDs as user
+  requests, so warm-ups and user traffic coalesce. Filtered requests for those cities are almost always
+  `X-Cache: HIT`.
 - ⭐ **Chaos engineering.** Each supplier can be set to `down`, `slow` or `flaky` over HTTP, with state shared through Redis.
 - `/health` probes both suppliers, Redis and Temporal in parallel with real latency and reports `up`, `degraded`
   or `down`. There are also `/health/live` and `/health/ready`.
@@ -333,6 +337,8 @@ These endpoints are enabled when `ENABLE_CHAOS=true`. If `ADMIN_TOKEN` is set, e
 | `DELETE /admin/cache/:city`             |                                                         | clear one city's cache (always available)                                     |
 | `GET /admin/circuits`                   |                                                         | circuit state per supplier (`FEATURE_MONITOR`)                                |
 | `POST /admin/monitor/probe-now`         |                                                         | signal both monitors to probe now and wait for the result (`FEATURE_MONITOR`) |
+| `GET /admin/warmup`                     |                                                         | warm-up Schedule: next run, last run, per-city results (`FEATURE_WARMUP`)     |
+| `POST /admin/warmup/run-now`            |                                                         | trigger the Schedule now and wait for the run (`FEATURE_WARMUP`)              |
 | `GET /admin/metrics/suppliers`          |                                                         | supplier data-call counters (`FEATURE_BENCHMARK`)                             |
 | `DELETE /admin/metrics/suppliers`       |                                                         | reset the counters (`FEATURE_BENCHMARK`)                                      |
 
@@ -442,6 +448,28 @@ stateDiagram-v2
   open --> closed: DELETE /admin/chaos (reset)
 ```
 
+**Cache warm-up with a Temporal Schedule.** At boot the worker creates the `cache-warmup` Schedule, or updates
+it if it already exists, so changed `WARMUP_*` values apply on the next deploy. Each tick runs
+`cacheWarmupWorkflow`, which starts one **child** `hotelOffersWorkflow` per city with the user-request ID
+`hotel-offers-<city>`.
+
+- **A user request during a warm-up** attaches to the child (the client uses `USE_EXISTING`).
+- **A warm-up during a user request:** child workflows can't use `USE_EXISTING` (Temporal omits it from
+  `ChildWorkflowOptions`), so the child start is rejected as already-started and that city is reported
+  `coalesced`. It is being refreshed anyway.
+- **Parent-close policy `ABANDON`:** user requests may be attached to a child, so terminating a warm-up must
+  never kill them.
+- **Overlap policy `SKIP`:** a slow tick never queues up behind another.
+
+The result is that filtered requests for warm-up cities are almost always `X-Cache: HIT` (served by one Lua
+call in about 5 ms), while the unfiltered endpoint still runs a fresh workflow as the contract requires.
+`DELETE /admin/chaos` also clears the warm-up cities' caches, so a warm-up that ran during a "supplier down"
+test can't leave partial data behind.
+
+![The cache-warmup Schedule in the Temporal UI](docs/images/temporal-schedule.png)
+_Screenshot placeholder: open <http://localhost:8080/namespaces/default/schedules/cache-warmup> and save it as
+`docs/images/temporal-schedule.png`._
+
 **No envelope in the response.** The contract asks for a bare array, and keeping metadata in headers makes
 the body exactly the domain data. Clients can `JSON.parse` it straight into a list, and HTTP caches and
 intermediaries handle it naturally. The body is built with an explicit 4-key projection, so internal fields
@@ -537,6 +565,8 @@ list of every problem. Compose reads `.env`; `.env.example` has the defaults.
 | `MONITOR_INTERVAL` / `MONITOR_PROBE_TIMEOUT_MS`                                      | `15s` / `2000`                           | probe cadence and per-probe timeout                                                                      |
 | `MONITOR_CONTINUE_AS_NEW_EVERY`                                                      | `100`                                    | iterations per monitor run before continue-as-new                                                        |
 | `CIRCUIT_FAILURE_THRESHOLD` / `CIRCUIT_COOLDOWN`                                     | `3` / `30s`                              | consecutive failed probes to open; time before a half-open probe                                         |
+| `FEATURE_WARMUP`                                                                     | `true`                                   | `cache-warmup` Temporal Schedule (deleted when `false`)                                                  |
+| `WARMUP_CITIES` / `WARMUP_INTERVAL`                                                  | `delhi,mumbai,bangalore` / `2m`          | cities refreshed on each tick, and tick interval                                                         |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD`                                                | `temporal` / `temporal`                  | compose only (Temporal persistence)                                                                      |
 | `API_HOST_PORT` / `REDIS_HOST_PORT` / `TEMPORAL_HOST_PORT` / `TEMPORAL_UI_HOST_PORT` | `3000` / `6379` / `7233` / `8080`        | compose host bindings; can be `127.0.0.1:PORT`                                                           |
 
