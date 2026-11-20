@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.git
+.github
+.env
+*.log
+test
+postman
+newman
+README.md
+SPEC.md

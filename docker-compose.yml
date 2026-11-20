@@ -1,0 +1,142 @@
+name: hotel-offer-orchestrator
+
+# Shared settings for the two app containers (built from the same image).
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: hotel-offer-orchestrator:1.0.0
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  networks: [hotel-net]
+
+x-app-env: &app-env
+  NODE_ENV: ${NODE_ENV:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  # Container-network addresses override whatever .env says for localhost dev.
+  REDIS_URL: redis://redis:6379
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+  SUPPLIER_A_URL: http://api:3000/supplierA/hotels
+  SUPPLIER_B_URL: http://api:3000/supplierB/hotels
+  ENABLE_CHAOS: ${ENABLE_CHAOS:-true}
+
+services:
+  postgresql:
+    image: postgres:17.12
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-temporal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-temporal}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [hotel-net]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    restart: unless-stopped
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-temporal}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-temporal}
+      POSTGRES_SEEDS: postgresql
+      BIND_ON_IP: 0.0.0.0
+      TEMPORAL_BROADCAST_ADDRESS: 127.0.0.1
+    ports:
+      - '${TEMPORAL_HOST_PORT:-7233}:7233'
+    networks: [hotel-net]
+    healthcheck:
+      # Healthy only once the server answers AND the default namespace exists.
+      test:
+        [
+          'CMD-SHELL',
+          'temporal operator namespace describe -n default --address 127.0.0.1:7233 >/dev/null 2>&1',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  temporal-ui:
+    image: temporalio/ui:2.58.1
+    restart: unless-stopped
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - '${TEMPORAL_UI_HOST_PORT:-8080}:8080'
+    networks: [hotel-net]
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:8080/ || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4.12
+    restart: unless-stopped
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '${REDIS_HOST_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    networks: [hotel-net]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *app
+    command: ['node', 'dist/api/server.js']
+    environment:
+      <<: *app-env
+      PORT: 3000
+      HEALTHCHECK_URL: http://127.0.0.1:3000/health/live
+    ports:
+      - '${API_HOST_PORT:-3000}:3000'
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    stop_grace_period: 15s
+
+  worker:
+    <<: *app
+    command: ['node', 'dist/temporal/worker.js']
+    environment:
+      <<: *app-env
+      WORKER_HEALTH_PORT: 3001
+      HEALTHCHECK_URL: http://127.0.0.1:3001/health/live
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    stop_grace_period: 30s
+
+networks:
+  hotel-net:
+    name: hotel-net
+
+volumes:
+  postgres-data:
+  redis-data:
