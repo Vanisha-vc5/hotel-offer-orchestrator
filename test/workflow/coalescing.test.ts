@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker, bundleWorkflowCode } from '@temporalio/worker';
+import { Runtime, Worker, bundleWorkflowCode } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SupplierHotel, SupplierId } from '../../src/domain/types';
 import { loadConfig } from '../../src/infra/config';
@@ -15,10 +15,20 @@ import { TASK_QUEUE } from '../../src/temporal/shared';
  * Uses the real Temporal dev server (createLocal): the Java time-skipping test
  * server does not implement workflowIdConflictPolicy.
  */
+const silent = { log() {}, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
+
 describe('request coalescing (real Temporal dev server)', () => {
   let env: TestWorkflowEnvironment;
 
   beforeAll(async () => {
+    try {
+      Runtime.install({
+        logger: silent,
+        telemetryOptions: { logging: { filter: { core: 'ERROR', other: 'ERROR' } } },
+      });
+    } catch {
+      // already installed by another test file in this process
+    }
     env = await TestWorkflowEnvironment.createLocal();
   });
   afterAll(async () => {
@@ -41,7 +51,6 @@ describe('request coalescing (real Temporal dev server)', () => {
       },
     };
 
-    const silent = { log() {}, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
     const worker = await Worker.create({
       connection: env.nativeConnection,
       taskQueue: TASK_QUEUE,

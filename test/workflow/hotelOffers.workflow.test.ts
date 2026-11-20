@@ -56,10 +56,14 @@ describe('hotelOffersWorkflow', () => {
 
   beforeAll(async () => {
     const silent = { log() {}, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
-    Runtime.install({
-      logger: silent,
-      telemetryOptions: { logging: { filter: { core: 'ERROR', other: 'ERROR' } } },
-    });
+    try {
+      Runtime.install({
+        logger: silent,
+        telemetryOptions: { logging: { filter: { core: 'ERROR', other: 'ERROR' } } },
+      });
+    } catch {
+      // already installed by another test file in this process
+    }
     // Bundle once; every test worker reuses it.
     workflowBundle = await bundleWorkflowCode({ workflowsPath, logger: silent });
     env = await TestWorkflowEnvironment.createTimeSkipping();
