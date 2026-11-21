@@ -7,7 +7,7 @@ The graded public contract (`GET /api/hotels`, the bare 4-key array, sorting, st
 **unchanged since 1.0.0** and is guarded byte-for-byte by `test/integration/contract.guard.test.ts`. Every 2.0.0
 feature is additive and sits behind an env flag. With the flags off, the system behaves exactly like 1.0.0.
 
-## [Unreleased]
+## [2.1.0] - 2026-11-22
 
 Production-quality polish. The graded contract is unchanged: the 4-key body, sorting and status codes, and the
 contract guard still passes.
@@ -28,6 +28,18 @@ contract guard still passes.
 - Filtered responses report the metadata of the data actually served. When a partial refresh kept the complete
   entry, the headers say `X-Cache: HIT` and `complete`.
 
+### Fixed
+
+- **E2E on GitHub:** `.env.example` set `ALLOW_COALESCING_OVERRIDE` and `ALLOW_OPEN_ADMIN` to `false`, which
+  overrode the local compose defaults when CI copied it to `.env`. The keys are now commented out;
+  `docker-compose.prod.yml` still pins both to `false`.
+- `trust proxy` is `1` (one hop) under `NODE_ENV=production`, and `TRUST_PROXY=true` also means one hop.
+
+### Removed
+
+- Internal build notes (`docs/SPEC.md`, `docs/WORK_SUMMARY.md`, `docs/BUILD_REPORT.md`, `ENHANCEMENTS.md`). The
+  assignment text lives in `docs/ASSIGNMENT.md`.
+
 ### Added
 
 - The `X-Coalesced` response header on workflow-backed responses (additive, documented in OpenAPI).
@@ -38,6 +50,8 @@ contract guard still passes.
   - the cache-write outcome, and the `filterMs` of the Lua filter.
 - Broader log redaction: auth headers, cookies, `ADMIN_TOKEN`, LLM and Temporal API keys, and any
   `token`/`password`/`secret`/`apiKey` field. A unit test checks it.
+- `POST /api/hotels/ask` and the LLM duplicate judge are labelled Experimental (LLM path tested with mocks;
+  deterministic fallback is the default).
 - More precise OpenAPI documentation for the `city`/`minPrice`/`maxPrice` rules, plus an OpenAPI drift test
   that checks the 18 routes, the examples against real responses, and every emitted header.
 - 82 new tests: the selection policy, the three cache states, TTL expiry, versioned and concurrent writes, the
