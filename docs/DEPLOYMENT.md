@@ -190,3 +190,86 @@ Copy backups off the VM (`scp`, object storage, or provider snapshots). A nightl
 | Containers killed with `OOMKilled`                                                       | The VM is too small. Use 4 GB or more, or raise `mem_limit` in `docker-compose.prod.yml`.                                                                                           |
 | `/api/hotels` returns 503 `TEMPORAL_UNAVAILABLE`                                         | `dc ps temporal`, then `dc restart temporal`. The api reconnects on its own.                                                                                                        |
 | Can't open the Temporal UI                                                               | It's loopback-only by design. Use the SSH tunnel in §5.                                                                                                                             |
+
+## 8. Alternatives to the one-command setup
+
+### Plain Docker Compose on any Linux VM Any Linux VM (EC2, DigitalOcean, …) with Docker Compose
+
+```bash
+# 1. Install Docker Engine + Compose plugin (Ubuntu)
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER && newgrp docker
+
+# 2. Get the code and configure
+git clone https://github.com/Vanisha-vc5/hotel-offer-orchestrator.git && cd hotel-offer-orchestrator
+cp .env.example .env
+#   Recommended production edits in .env:
+#   ADMIN_TOKEN=<long random string>        # protect /admin/*
+#   ENABLE_CHAOS=false                       # turn off failure injection
+#   POSTGRES_PASSWORD=<strong password>
+#   REDIS_HOST_PORT=127.0.0.1:6379           # do NOT expose Redis/Temporal publicly
+#   TEMPORAL_HOST_PORT=127.0.0.1:7233
+#   TEMPORAL_UI_HOST_PORT=127.0.0.1:8080     # reach it through an SSH tunnel
+
+# 3. Start
+docker compose up --build -d
+docker compose ps                            # wait until everything is healthy
+
+# 4. Open port 3000: allow inbound TCP 3000 in the cloud security group / firewall,
+#    and on the host if ufw is active:
+sudo ufw allow 3000/tcp
+curl http://<vm-ip>:3000/health
+```
+
+**Optional nginx reverse proxy** (TLS termination on 80/443). Set `API_HOST_PORT=127.0.0.1:3000` and
+`TRUST_PROXY=true` in `.env`, then `docker compose up -d`:
+
+```nginx
+server {
+  listen 80;
+  server_name hotels.example.com;
+  location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 40s;            # > WORKFLOW_EXECUTION_TIMEOUT (30s)
+  }
+}
+```
+
+```bash
+sudo apt-get install -y nginx certbot python3-certbot-nginx
+sudo cp hotels.conf /etc/nginx/sites-available/ && sudo ln -s ../sites-available/hotels.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d hotels.example.com   # optional HTTPS
+```
+
+To reach the Temporal UI securely, use `ssh -L 8080:127.0.0.1:8080 user@vm`, then open <http://localhost:8080>.
+
+### Temporal Cloud instead of the bundled server Temporal Cloud
+
+`config.ts` already supports both Temporal Cloud auth methods, so this needs no code changes:
+
+```dotenv
+TEMPORAL_NAMESPACE=<namespace>.<account-id>
+
+# Option 1 — API key (TLS is implied)
+TEMPORAL_ADDRESS=<region>.<cloud>.api.temporal.io:7233
+TEMPORAL_API_KEY=<api key>
+
+# Option 2 — mTLS (mount the files into the api and worker containers)
+TEMPORAL_ADDRESS=<namespace>.<account-id>.tmprl.cloud:7233
+TEMPORAL_TLS_CERT_PATH=/certs/client.pem
+TEMPORAL_TLS_KEY_PATH=/certs/client.key
+```
+
+Then run only Redis and the app; the local `temporal`, `postgresql` and `temporal-ui` services aren't needed:
+
+```bash
+docker compose up -d redis
+docker compose up -d --no-deps --build api worker
+```
+
+For mTLS, add `volumes: ['./certs:/certs:ro']` to `api` and `worker`. Use the Temporal Cloud UI instead of the
+local one.

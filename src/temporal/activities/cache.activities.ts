@@ -2,10 +2,14 @@ import { ApplicationFailure, Context, log } from '@temporalio/activity';
 import { FailureTypes } from '../../domain/errors';
 import type { Config } from '../../infra/config';
 import type { HotelRepository } from '../../infra/hotelRepository';
+import type { WriteOutcome } from '../../infra/hotelRepository';
 import type { PersistPayload } from '../shared';
 
 export interface CacheActivities {
-  persistOffers(city: string, result: PersistPayload): Promise<{ ttlSeconds: number }>;
+  persistOffers(
+    city: string,
+    result: PersistPayload,
+  ): Promise<{ ttlSeconds: number; outcome?: WriteOutcome }>;
 }
 
 export function createCacheActivities(repository: HotelRepository, cfg: Config): CacheActivities {
@@ -18,8 +22,9 @@ export function createCacheActivities(repository: HotelRepository, cfg: Config):
       const attempt = Context.current().info.attempt;
       const ttlSeconds =
         result.resultStatus === 'partial' ? cfg.PARTIAL_CACHE_TTL_SECONDS : cfg.CACHE_TTL_SECONDS;
+      let outcome: WriteOutcome;
       try {
-        await repository.saveCityOffers(city, result, ttlSeconds);
+        outcome = await repository.saveCityOffers(city, result, ttlSeconds);
       } catch (err) {
         log.warn('persist failed', {
           city,
@@ -32,15 +37,18 @@ export function createCacheActivities(repository: HotelRepository, cfg: Config):
           FailureTypes.CacheUnavailable,
         );
       }
-      log.info('offers persisted', {
+      const meta = {
         city,
         attempt,
         requestId: result.requestId,
         count: result.offers.length,
         resultStatus: result.resultStatus,
-        ttlSeconds,
-      });
-      return { ttlSeconds };
+        generation: result.generation,
+        outcome,
+      };
+      if (outcome === 'written') log.info('offers persisted', { ...meta, ttlSeconds });
+      else log.info('cache write skipped', meta); // 'stale' or 'kept_complete' (policy, not an error)
+      return { ttlSeconds, outcome };
     },
   };
 }

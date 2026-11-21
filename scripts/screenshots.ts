@@ -11,7 +11,8 @@
 import { mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import type { Page } from 'playwright';
+import { pathToFileURL } from 'node:url';
+import type { Locator, Page } from 'playwright';
 import sharp from 'sharp';
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000';
@@ -32,8 +33,10 @@ async function api(method: string, p: string, body?: unknown): Promise<Response>
 }
 
 /** Screenshot the viewport, then re-encode as a palette PNG (typically 3–5× smaller). */
-async function capture(page: Page, name: string): Promise<void> {
-  const raw = await page.screenshot({ type: 'png' });
+async function capture(page: Page, name: string, element?: Locator): Promise<void> {
+  const raw = element
+    ? await element.screenshot({ type: 'png' })
+    : await page.screenshot({ type: 'png' });
   const png = await sharp(raw)
     .png({ palette: true, quality: 85, compressionLevel: 9, effort: 10 })
     .toBuffer();
@@ -57,6 +60,49 @@ async function consoleShot(page: Page): Promise<void> {
   await page.waitForFunction(() => document.querySelectorAll('#insights-dups tbody tr').length > 0);
   await page.evaluate(() => window.scrollTo(0, 0));
   await capture(page, 'console.png');
+}
+
+/**
+ * Redis price filtering in the console: the same filtered search twice, so the second one is
+ * served by the Lua script from the cache (X-Cache: HIT chip, response time of a few ms).
+ */
+async function filteringShot(page: Page): Promise<void> {
+  await page.goto(`${BASE_URL}/console/`);
+  await page.waitForFunction(() => document.querySelectorAll('#health-tiles .tile').length === 2);
+  await page.fill('#search-form input[name=city]', 'delhi');
+  await page.fill('#search-form input[name=minPrice]', '4000');
+  await page.fill('#search-form input[name=maxPrice]', '6000');
+  for (let i = 0; i < 2; i++) {
+    await page.click('#search-form button[type=submit]');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#search-results tbody tr').length === 2,
+    );
+  }
+  await page.waitForFunction(() =>
+    /HIT/.test(document.getElementById('search-meta')?.textContent ?? ''),
+  );
+  await capture(
+    page,
+    'redis-filtering.png',
+    page.locator('section', { has: page.locator('#search-form') }),
+  );
+}
+
+/**
+ * Optional: a newman HTML report of the Postman collection (official newman-reporter-html),
+ * produced outside this script with the project's locked newman. The reporter is deliberately not
+ * a project dependency; newman `require`s it, so expose it through NODE_PATH:
+ *   (cd /tmp/nr && npm i newman-reporter-html@1.0.5)
+ *   NODE_PATH=/tmp/nr/node_modules node node_modules/newman/bin/newman.js run \
+ *     postman/HotelOfferOrchestrator.postman_collection.json -e postman/local.postman_environment.json \
+ *     -r cli,html --reporter-html-export /tmp/nr/report.html
+ *   NEWMAN_HTML=/tmp/nr/report.html npm run screenshots
+ * Check the report's "Total Failures" before publishing the image.
+ */
+async function newmanShot(page: Page, htmlFile: string): Promise<void> {
+  await page.goto(pathToFileURL(path.resolve(htmlFile)).href);
+  await page.waitForLoadState('load');
+  await capture(page, 'postman-newman.png');
 }
 
 async function retriesShot(page: Page): Promise<void> {
@@ -117,9 +163,11 @@ async function main(): Promise<void> {
     page.setDefaultTimeout(20_000);
     console.log(`capturing against ${BASE_URL} and ${TEMPORAL_UI}`);
     await consoleShot(page);
+    await filteringShot(page);
     await retriesShot(page);
     await scheduleShot(page);
     await openApiShot(page);
+    if (process.env.NEWMAN_HTML) await newmanShot(page, process.env.NEWMAN_HTML);
   } finally {
     await browser.close();
   }

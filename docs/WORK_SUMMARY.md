@@ -54,19 +54,34 @@ Each feature is behind an env flag, defaults to on, and only _adds_ endpoints, f
 | 8   | `6753304`            | One-command verification    | `npm run verify` (clean stack, all tests, newman, chaos scenarios, benchmark) writes `docs/verification-report.md`. A separate E2E CI workflow                                                                                                                                              |
 | 9   | `3f5754e`, `190599c` | Release                     | README rewrite (highlights, reviewer quick tour), `CHANGELOG.md`, `docs/DEMO_SCRIPT.md`, version 2.0.0. A fresh-clone test passed. Tagged `v2.0.0`                                                                                                                                          |
 
+**After 2.0.0 (unreleased): production-quality polish.**
+
+- Robust tie-break: an invalid commission ranks lowest.
+- `normalizeHotelName` with Unicode NFC.
+- Versioned, atomic Lua cache writes: an older run can't overwrite a newer one, and a partial result never
+  replaces a complete one.
+- `X-Coalesced` header, richer structured logs, broader secret redaction.
+- An OpenAPI drift test.
+- A 21-section README with Mermaid diagrams, plus a demo guide, design notes and a configuration reference.
+- Two new real screenshots.
+
+That added 82 tests; see [BUILD_REPORT](BUILD_REPORT.md#production-quality-polish-post-200-unreleased).
+
 ## 4. Problems found and fixed
 
-| Problem                                                                             | Fix                                                                                                |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| With Temporal down, the API took 92 s to answer 503                                 | gRPC deadlines; it now takes about 5 s                                                             |
-| A failed typecheck was hidden behind a pipe and got committed                       | Fixed and amended; every later gate ran with `pipefail`                                            |
-| The Temporal test server doesn't support the coalescing conflict policy             | The coalescing tests run on the real Temporal dev server                                           |
-| The benchmark text claimed "1 run" when it measured 6                               | The interpretation was rewritten to report the measured numbers                                    |
-| An intermittent Postman failure when a warm-up tick overlapped the chaos tests      | Warm-up run-now also waits for in-flight `coalesced` runs                                          |
-| The duplicate review could create an empty cache entry that looked like a cache HIT | The write is guarded by a Lua script that only writes if the city's data still exists, plus a test |
-| Similar names ("Leela Palace" vs "Pearl Palace") were reported as duplicates        | Mutual-best-match filtering                                                                        |
-| A monitor test hung about 1 run in 3                                                | Each poll query gets a deadline; it then passed 6 of 6                                             |
-| The README quick tour failed on a fresh clone (`tsx` not found)                     | Added `npm ci` to the tour                                                                         |
+| Problem                                                                                         | Fix                                                                                                |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| With Temporal down, the API took 92 s to answer 503                                             | gRPC deadlines; it now takes about 5 s                                                             |
+| A failed typecheck was hidden behind a pipe and got committed                                   | Fixed and amended; every later gate ran with `pipefail`                                            |
+| The Temporal test server doesn't support the coalescing conflict policy                         | The coalescing tests run on the real Temporal dev server                                           |
+| The benchmark text claimed "1 run" when it measured 6                                           | The interpretation was rewritten to report the measured numbers                                    |
+| An intermittent Postman failure when a warm-up tick overlapped the chaos tests                  | Warm-up run-now also waits for in-flight `coalesced` runs                                          |
+| The duplicate review could create an empty cache entry that looked like a cache HIT             | The write is guarded by a Lua script that only writes if the city's data still exists, plus a test |
+| Similar names ("Leela Palace" vs "Pearl Palace") were reported as duplicates                    | Mutual-best-match filtering                                                                        |
+| A monitor test hung about 1 run in 3                                                            | Each poll query gets a deadline; it then passed 6 of 6                                             |
+| The README quick tour failed on a fresh clone (`tsx` not found)                                 | Added `npm ci` to the tour                                                                         |
+| A partial result overwrote a fresh complete cache, and an older run could overwrite a newer one | `writeCityOffers.lua` with a generation check and the `kept_complete` policy                       |
+| An invalid commission (`NaN`, missing) could flip a price-tie winner                            | Invalid commission ranks lowest; invalid price or name is skipped                                  |
 
 ## 5. Deliberate differences from the plans
 
@@ -82,10 +97,10 @@ Each feature is behind an env flag, defaults to on, and only _adds_ endpoints, f
 ## 6. Verification snapshot
 
 ```
-npm run lint && npm run typecheck && npm test   → 24 files, 198 tests passed
+npm run lint && npm run typecheck && npm test   → 32 files, 309 tests passed
 contract guard                                   → 4/4 passed (graded response unchanged since v1.0.0)
 docker compose up --build -d                     → 6/6 services healthy
-newman (run twice)                               → 61 requests, 147 assertions, 0 failed
+newman (run twice)                               → 61 requests, 148 assertions, 0 failed
 npm run verify (run twice)                       → 10/10 checks passed
 production override (local HTTPS via Caddy)      → newman 147/147 passed
 fresh clone following the README                 → working (after the npm ci fix)
@@ -96,7 +111,7 @@ fresh clone following the README                 → working (after the npm ci f
 - [ ] Push to GitHub and check the first CI and E2E runs. They've never run on GitHub.
 - [x] `OWNER` placeholders replaced with `Vanisha-vc5`.
 - [ ] Deploy to a VM (`docs/DEPLOYMENT.md`) and add the live URL to the README.
-- [ ] Add the two screenshots (`docs/images/console.png`, `docs/images/temporal-schedule.png`).
+- [x] Screenshots: console, Temporal retries, Temporal schedule, OpenAPI, Redis filtering and the newman report.
 - [ ] Optionally set `LLM_PROVIDER` to try the AI parser and the duplicate judge. Everything works without it.
 - [ ] Local only: add the portable Node to PATH. Tests use `REDIS_URL=redis://localhost:6380/15` while port 6379
       is taken.

@@ -117,8 +117,10 @@ describe('HotelRepository (real Redis)', () => {
   });
 
   it('atomically replaces old data on rewrite', async () => {
+    // Starts from a PARTIAL entry: by policy a partial never replaces a complete one
+    // (covered by the cache-policy tests below); partial → partial must fully replace.
     const c = city();
-    await repo.saveCityOffers(c, payload(delhiOffers), 60);
+    await repo.saveCityOffers(c, payload(delhiOffers, true), 60);
     const fresh: HotelOffer[] = [
       { name: 'Only One', price: 100, supplier: 'Supplier A', commissionPct: 5 },
     ];

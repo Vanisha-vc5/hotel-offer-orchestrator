@@ -62,6 +62,11 @@ export interface HotelOffersWorkflowResult {
   suppliersStatus: SuppliersStatus;
   resultStatus: ResultStatus;
   decisions: Decision[];
+  /**
+   * The request that STARTED this run. A coalesced request (one that attached to an
+   * existing run) has a different id: the API compares the two (X-Coalesced).
+   */
+  requestId?: string;
 }
 
 export type WorkflowStep = 'fetching' | 'selecting' | 'persisting' | 'done' | 'failed';
@@ -78,6 +83,12 @@ export interface PersistPayload extends HotelOffersWorkflowResult {
   workflowId: string;
   runId: string;
   requestId: string;
+  /**
+   * Data generation (ms): the workflow time when the supplier fetches settled.
+   * Newer runs have larger values; the cache write rejects anything older than
+   * what is stored. Optional for backward compatibility (defaults to write time).
+   */
+  generation?: number;
 }
 
 /** Serialises supplier status as `A=up;B=down` for the X-Suppliers-Status header. */

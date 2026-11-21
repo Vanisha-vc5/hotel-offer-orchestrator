@@ -1,0 +1,47 @@
+%% Request lifecycle of GET /api/hotels (rendered in README.md §6).
+%% Matches src/api/services/hotelService.ts and src/temporal/workflows/hotelOffers.workflow.ts.
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant API as Express API
+  participant R as Redis
+  participant T as Temporal
+  participant W as Worker
+  participant A as Supplier A
+  participant B as Supplier B
+
+  C->>API: GET /api/hotels?city=delhi[&minPrice&maxPrice][&refresh]
+  API->>API: zod validation (400 on error), normalise city
+  opt minPrice or maxPrice given, and refresh is not true
+    API->>R: filterByPrice.lua(city, min, max)
+    R-->>API: hit (offers in range, possibly []) or miss
+    Note over API,C: on a hit: 200 [...] with X-Cache: HIT, and the request ends here
+  end
+  API->>T: start workflow hotel-offers-delhi (conflict policy USE_EXISTING)
+  Note over API,T: a request arriving while a run is in flight joins that run (X-Coalesced: true)
+  T->>W: hotelOffersWorkflow({city, requestId})
+  par Promise.allSettled
+    W->>A: fetchSupplierHotels(A): 4s timeout, up to 3 attempts
+    A-->>W: hotels or failure
+  and
+    W->>B: fetchSupplierHotels(B): 4s timeout, up to 3 attempts
+    B-->>W: hotels or failure
+  end
+  alt both suppliers failed
+    W-->>T: AllSuppliersUnavailable (nothing is written to Redis)
+    T-->>API: workflow failed
+    API-->>C: 503 SUPPLIERS_UNAVAILABLE
+  else at least one supplier answered
+    W->>W: selectBestOffers: dedupe by normalised name, price, then commission, then Supplier A
+    W->>R: persistOffers: writeCityOffers.lua (atomic, versioned, TTL 300s or 30s if partial)
+    R-->>W: written, stale or kept_complete
+    W-->>T: {offers, suppliersStatus, resultStatus, requestId}
+    T-->>API: result
+    alt no price filter
+      API-->>C: 200 [workflow result] with X-Cache: MISS
+    else price filter
+      API->>R: filterByPrice.lua(city, min, max)
+      R-->>API: offers in range
+      API-->>C: 200 [...] with X-Cache: MISS (HIT when a kept complete entry is served)
+    end
+  end

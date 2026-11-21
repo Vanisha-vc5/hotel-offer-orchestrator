@@ -714,3 +714,75 @@ npm run verify (clean slate, per-run token)   → ✅ 10/10: 95 + 17 + 115 tests
 npm run smoke -- --url http://localhost:3000   → 5/5
 npm run screenshots                            → 4 images, 24–52 KB each
 ```
+
+## Production-quality polish (post-2.0.0, unreleased)
+
+A pasted ten-part brief: selection robustness, normalisation, cache correctness, README and diagrams,
+observability, API docs, screenshots and a demo guide, and a full regression. I inspected the code first, and
+anything already correct was verified and kept rather than rewritten.
+
+**Weaknesses found**
+
+| #   | Weakness                                                                                                                                            | Evidence                                                           | Fix                                                                                                                            |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | An invalid commission (`NaN`, `undefined`, negative) could change the winner of a price tie and mislabel the reason                                 | `NaN > x` is always false, so the comparison silently fell through | `isValidCommission`; an invalid commission ranks at −∞ in the tie-break and is output as `0`; invalid price or name is skipped |
+| 2   | The dedupe key ignored Unicode composition                                                                                                          | `"é"` (precomposed) ≠ `"é"`                                        | `normalizeHotelName`: NFC, trim, fold all whitespace, lowercase (NFKC rejected: it folds `Ⅱ` → `II`)                           |
+| 3   | A partial result overwrote a fresh **complete** cache entry for 30 s                                                                                | the write was an unconditional `MULTI`                             | `writeCityOffers.lua` returns `kept_complete` and leaves the complete entry and its TTL alone                                  |
+| 4   | No ordering between concurrent writers: a slow, older run could roll the cache back                                                                 | same                                                               | the run's start time is the `generation`; an older generation returns `stale` inside the atomic script                         |
+| 5   | After (3), a filtered refresh would have reported the run's `partial` headers while serving cached complete data                                    | `hotelService` always used the run's metadata                      | the headers come from the served entry when another run's data is served                                                       |
+| 6   | API logs lacked workflow start and completion, workflow type, coalesced vs origin request, per-supplier counts, cache-write outcome and filter time | log review                                                         | added; see README §12                                                                                                          |
+| 7   | Redaction covered only `x-admin-token`                                                                                                              | `logger.ts`                                                        | auth, cookie and set-cookie headers, admin, LLM and Temporal keys, and any `token`, `password`, `secret` or `apiKey` field     |
+| 8   | OpenAPI omitted the city length and pattern, and price semantics; nothing checked docs against code                                                 | review                                                             | the spec is fixed, and `openapi.drift.test.ts` checks routes, examples and headers                                             |
+
+Already correct and kept: TTL on all three keys, configured by env; meta written for empty results (empty is a
+HIT); inclusive server-side filtering; fuzzy duplicates report-only; hash-tagged keys. The Part 3.6 filter cases
+(only min, only max, both, exact boundary, no match, invalid, min > max, cached empty) already had tests.
+
+**Decisions**
+
+- **A Lua version check, not a distributed lock.** One atomic script compares generations and writes, with no
+  lock to time out or leak. The `generation` is `Date.now()` in workflow code, which Temporal makes
+  deterministic on replay. A retried persist of the same run has the same generation and is accepted, so it
+  is idempotent.
+- **Unfiltered responses still return the run's own result,** partial or not. The brief requires a fresh
+  workflow per request, and only the cache write is conditional.
+- **`X-Coalesced`** is a new additive header, not a body field. It is absent on cache hits, where no workflow
+  ran.
+
+**A bug in my own tooling.** An edit script used `String.prototype.replace(a, b)` with a replacement string
+that contained `$'`, which JavaScript expands to "the text after the match". It duplicated half of
+`src/api/openapi.ts`: `export const openApiDocument` appeared twice, and the file grew to 1,242 lines. I
+restored the file from git and re-ran
+the edit with the function form, `replace(a, () => b)`, which never expands `$` patterns. Every other file
+touched by such scripts was audited for growth or duplication, and none was affected.
+
+**Screenshots.** Two were added: `redis-filtering.png`, a console search for 4000–6000 served as
+`Cache HIT` in 2.4 ms, and `postman-newman.png`. The first attempt at the newman report used
+`npx newman@6.2.3 -p newman-reporter-html`. Without the lockfile, that resolved newer transitive dependencies,
+and every request failed with `ERR_INVALID_IP_ADDRESS`. Its failed HTML report was briefly captured as the
+image. I caught this while reviewing the image, deleted it, and regenerated it with the project's locked newman
+(reporter loaded through `NODE_PATH`). The report was checked for "Total Failures 0" before it was captured
+again.
+
+**Docs.** The README was rewritten into the 21 requested sections, with WHY explanations, the required vs
+optional split, examples and status codes. Its length went from 998 to about 600 lines. Detail moved to
+`docs/DESIGN_NOTES.md`, `docs/CONFIGURATION.md` and `docs/DEPLOYMENT.md` §8. `docs/diagrams/*.mmd` holds the
+two Mermaid diagrams, which were rendered with Mermaid 11.4.1 in Chromium to confirm they parse. The outputs in
+`docs/DEMO_GUIDE.md` come from live runs: A down, B down, both down, filtering, coalescing (8 parallel requests,
+1 run, one `X-Coalesced: false`) and the circuit breaker (2201 ms before it opened, 273 ms after).
+
+**Verification**
+
+```
+npm run lint / format:check / typecheck      → clean
+npm test                                     → 32 files, 309 tests passed (was 27 files, 227)
+npm run verify (clean slate, 211 s)          → ✅ 10/10: 138 unit + 17 workflow + 154 integration tests;
+                                                newman 61 requests / 148 assertions / 0 failed; 5 chaos scenarios;
+                                                benchmark N=50 (on: 3 runs, off: 50 runs)
+npm run test:postman ×2 (same stack)         → 61 / 148 / 0 failed, both runs
+docker compose ps                            → api, worker, redis, temporal, temporal-ui, postgresql: healthy
+Mermaid (11.4.1 in Chromium)                 → all 4 diagram blocks render
+```
+
+`docs/verification-report.md` names commit `2f43d43` because verify ran on the working tree just before this
+work was committed.

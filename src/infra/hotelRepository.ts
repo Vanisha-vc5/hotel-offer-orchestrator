@@ -1,14 +1,17 @@
 import type { Redis } from 'ioredis';
 import { RedisUnavailableError } from '../domain/errors';
-import { normalizeName } from '../domain/selectBestOffers';
+import { normalizeHotelName } from '../domain/selectBestOffers';
 import type { PossibleDuplicate } from '../domain/duplicates';
 import type { Decision, HotelOffer, ResultStatus } from '../domain/types';
 import type { PersistPayload } from '../temporal/shared';
 import { formatSuppliersStatus } from '../temporal/shared';
+import type { WriteOutcome } from './redis';
+
+export type { WriteOutcome } from './redis';
 
 /**
  * Hash-tagged keys: `{city}` makes all three keys of a city hash to the same
- * slot, so MULTI and the Lua script stay valid on Redis Cluster.
+ * slot, so the multi-key Lua scripts stay valid on Redis Cluster.
  */
 export function cityKeys(city: string): { byPrice: string; offers: string; meta: string } {
   const tag = `hotels:{${city}}`;
@@ -80,33 +83,28 @@ export class HotelRepository {
   constructor(private readonly redis: Redis) {}
 
   /**
-   * Atomically replaces a city's cached result: DEL → ZADD → HSET offers →
-   * HSET meta → EXPIRE, all inside one MULTI/EXEC. Readers never observe a
-   * half-written city. Meta is written even for an empty result so that
-   * "no hotels in this city" is itself a cache HIT.
+   * Atomically replaces a city's cached result with ONE Lua script
+   * (writeCityOffers.lua): DEL → ZADD → HSET offers → HSET meta → EXPIRE all three
+   * keys. Readers never observe a half-written city. Meta is written even for an
+   * empty result, so "no hotels in this city" is itself a cache HIT.
+   *
+   * Two guards, evaluated atomically with the write:
+   *  - **version check**: a payload whose `generation` is older than the cached one
+   *    is rejected ('stale'), so a late or retried write can't roll data back;
+   *  - **partial policy**: a partial result never replaces a still-valid complete
+   *    one ('kept_complete'); it only fills an empty/expired slot or replaces a partial.
    */
   async saveCityOffers(
     city: string,
     payload: PersistPayload,
     ttlSeconds: number,
     fetchedAt: Date = new Date(),
-  ): Promise<void> {
+  ): Promise<WriteOutcome> {
     const k = cityKeys(city);
-    const tx = this.redis.multi().del(k.byPrice, k.offers, k.meta);
-
-    if (payload.offers.length > 0) {
-      const zargs: Array<string | number> = [];
-      const hash: Record<string, string> = {};
-      for (const offer of payload.offers) {
-        const member = normalizeName(offer.name);
-        zargs.push(offer.price, member);
-        hash[member] = JSON.stringify(toStoredOffer(offer));
-      }
-      tx.zadd(k.byPrice, ...zargs).hset(k.offers, hash);
-    }
-
-    tx.hset(k.meta, {
+    const generation = payload.generation ?? fetchedAt.getTime();
+    const meta: Record<string, string> = {
       fetchedAt: fetchedAt.toISOString(),
+      generation: String(generation),
       workflowId: payload.workflowId,
       runId: payload.runId,
       requestId: payload.requestId,
@@ -115,16 +113,15 @@ export class HotelRepository {
       resultStatus: payload.resultStatus,
       ttlSeconds: String(ttlSeconds),
       decisions: JSON.stringify(payload.decisions),
-    })
-      .expire(k.byPrice, ttlSeconds)
-      .expire(k.offers, ttlSeconds)
-      .expire(k.meta, ttlSeconds);
-
-    const results = await guard('saveCityOffers', () => tx.exec());
-    const failed = results?.find(([err]) => err);
-    if (!results || failed) {
-      throw new RedisUnavailableError('Cache transaction failed', failed?.[0] ?? 'EXEC aborted');
+    };
+    const args: Array<string | number> = [generation, payload.resultStatus, ttlSeconds];
+    args.push(Object.keys(meta).length, ...Object.entries(meta).flat());
+    for (const offer of payload.offers) {
+      args.push(normalizeHotelName(offer.name), offer.price, JSON.stringify(toStoredOffer(offer)));
     }
+    return guard('saveCityOffers', () =>
+      this.redis.writeCityOffers(k.byPrice, k.offers, k.meta, ...args),
+    );
   }
 
   /**

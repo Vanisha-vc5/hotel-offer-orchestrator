@@ -107,15 +107,34 @@ export async function hotelOffersWorkflow(
     });
   }
 
+  // Deterministic workflow time (replay-safe): orders cache generations across runs.
+  // eslint-disable-next-line no-restricted-properties -- Date.now() is replay-safe in Temporal workflows
+  const generation = Date.now();
+
   status.step = 'selecting';
   const { offers, decisions } = selectBestOffers(lists);
   const resultStatus =
     suppliersStatus.A === 'up' && suppliersStatus.B === 'up' ? 'complete' : 'partial';
-  const result: HotelOffersWorkflowResult = { offers, suppliersStatus, resultStatus, decisions };
+  const result: HotelOffersWorkflowResult = {
+    offers,
+    suppliersStatus,
+    resultStatus,
+    decisions,
+    requestId,
+  };
 
   status.step = 'persisting';
   try {
-    await persistOffers(city, { ...result, workflowId, runId, requestId });
+    const write = await persistOffers(city, {
+      ...result,
+      workflowId,
+      runId,
+      requestId,
+      generation,
+    });
+    if (write.outcome && write.outcome !== 'written') {
+      log.info('cache write skipped by policy', { city, requestId, outcome: write.outcome });
+    }
   } catch (err) {
     status.step = 'failed';
     throw ApplicationFailure.create({
@@ -130,7 +149,9 @@ export async function hotelOffersWorkflow(
   log.info('workflow completed', {
     city,
     requestId,
-    winners: offers.length,
+    hotelsFromA: lists.A?.length ?? 0,
+    hotelsFromB: lists.B?.length ?? 0,
+    afterDedup: offers.length,
     resultStatus,
     suppliers: suppliersStatus,
   });

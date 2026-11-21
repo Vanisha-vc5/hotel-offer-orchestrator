@@ -42,6 +42,10 @@ const hotelHeaders = {
   'X-Suppliers-Status': header('Per-supplier status', 'A=up;B=down'),
   'X-Result-Status': header('complete | partial', 'complete'),
   'X-Cache': header('MISS (workflow ran) | HIT (served from Redis)', 'MISS'),
+  'X-Coalesced': header(
+    'Workflow-backed responses only: true when this request joined a run another request started',
+    'false',
+  ),
   'X-Circuit-State': header(
     'FEATURE_MONITOR: circuit breaker state per supplier',
     'A=closed;B=open',
@@ -53,8 +57,16 @@ const cityParam = {
   name: 'city',
   in: 'query',
   required: true,
-  description: 'Case-insensitive; letters, spaces and hyphens; max 50 chars.',
-  schema: { type: 'string', example: 'delhi' },
+  description:
+    'Required. Trimmed, inner whitespace collapsed, lowercased; letters (any script), spaces and ' +
+    'hyphens only; 1–50 characters. Invalid → 400 VALIDATION_ERROR.',
+  schema: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 50,
+    pattern: '^[\\p{L} -]+$',
+    example: 'delhi',
+  },
 };
 
 const dependency = {
@@ -121,8 +133,18 @@ export const openApiDocument = {
           'and optional. The body is always a bare array sorted by price, then name.',
         parameters: [
           cityParam,
-          { name: 'minPrice', in: 'query', schema: { type: 'number', minimum: 0, example: 5000 } },
-          { name: 'maxPrice', in: 'query', schema: { type: 'number', minimum: 0, example: 9000 } },
+          {
+            name: 'minPrice',
+            in: 'query',
+            description: 'Optional, inclusive lower bound. Finite number ≥ 0; must be ≤ maxPrice.',
+            schema: { type: 'number', minimum: 0, example: 5000 },
+          },
+          {
+            name: 'maxPrice',
+            in: 'query',
+            description: 'Optional, inclusive upper bound. Finite number ≥ 0; must be ≥ minPrice.',
+            schema: { type: 'number', minimum: 0, example: 9000 },
+          },
           {
             name: 'refresh',
             in: 'query',

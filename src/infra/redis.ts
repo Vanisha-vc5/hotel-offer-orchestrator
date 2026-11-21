@@ -18,8 +18,18 @@ declare module 'ioredis' {
       max: string,
       ...metaFields: string[]
     ): Result<FilterByPriceReply, Context>;
+    /** writeCityOffers.lua: versioned atomic write. */
+    writeCityOffers(
+      byPriceKey: string,
+      offersKey: string,
+      metaKey: string,
+      ...args: Array<string | number>
+    ): Result<WriteOutcome, Context>;
   }
 }
+
+/** Result of writeCityOffers.lua. */
+export type WriteOutcome = 'written' | 'stale' | 'kept_complete';
 
 const LUA_DIR = path.join(__dirname, 'lua');
 
@@ -30,6 +40,7 @@ export function loadLua(name: string): string {
 /** Registers the custom Lua commands (EVALSHA with automatic EVAL fallback). */
 export function defineCommands(client: Redis): void {
   client.defineCommand('filterByPrice', { numberOfKeys: 3, lua: loadLua('filterByPrice.lua') });
+  client.defineCommand('writeCityOffers', { numberOfKeys: 3, lua: loadLua('writeCityOffers.lua') });
 }
 
 export function createRedis(url: string = config().REDIS_URL, name = 'redis'): Redis {

@@ -103,6 +103,8 @@ export interface WorkflowRun {
   result: HotelOffersWorkflowResult;
   workflowId: string;
   runId: string;
+  /** True when this request attached to a run another request had started. */
+  coalesced?: boolean;
 }
 
 /**
@@ -143,6 +145,34 @@ export async function runHotelOffersWorkflow(
   // The workflow itself times out after WORKFLOW_EXECUTION_TIMEOUT; the margin
   // lets that timeout surface as a WorkflowFailedError (504) rather than a deadline.
   const resultDeadline = Date.now() + msToNumber(cfg.WORKFLOW_EXECUTION_TIMEOUT) + 5_000;
+  const runId = handle.firstExecutionRunId;
+  const started = performance.now();
+  logger.info(
+    {
+      requestId: input.requestId,
+      city: input.city,
+      workflowId,
+      runId,
+      workflowType: 'hotelOffersWorkflow',
+    },
+    'workflow started or joined',
+  );
   const result = await client.connection.withDeadline(resultDeadline, () => handle.result());
-  return { result, workflowId: handle.workflowId, runId: handle.firstExecutionRunId };
+  // Coalesced: the run was started by another request (its id is recorded in the result).
+  const coalesced = result.requestId !== undefined && result.requestId !== input.requestId;
+  logger.info(
+    {
+      requestId: input.requestId,
+      originRequestId: result.requestId,
+      coalesced,
+      workflowId,
+      runId,
+      workflowType: 'hotelOffersWorkflow',
+      durationMs: Math.round(performance.now() - started),
+      resultStatus: result.resultStatus,
+      hotels: result.offers.length,
+    },
+    'workflow completed',
+  );
+  return { result, workflowId: handle.workflowId, runId, coalesced };
 }

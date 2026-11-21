@@ -85,7 +85,7 @@ export class FakeWorkflowRunner {
 
     const { offers, decisions } = selectBestOffers(lists);
     const resultStatus = suppliersStatus.B === 'up' ? 'complete' : 'partial';
-    const result = { offers, decisions, suppliersStatus, resultStatus } as const;
+    const result = { offers, decisions, suppliersStatus, resultStatus, requestId } as const;
     const workflowId =
       input.coalesce === false
         ? `hotel-offers-${city}--${this.runSeq + 1}`
@@ -96,7 +96,7 @@ export class FakeWorkflowRunner {
       { ...result, workflowId, runId, requestId },
       resultStatus === 'partial' ? 30 : 300,
     );
-    return { result, workflowId, runId };
+    return { result, workflowId, runId, coalesced: false };
   };
 }
 

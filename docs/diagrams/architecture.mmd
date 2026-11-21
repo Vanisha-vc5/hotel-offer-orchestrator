@@ -1,0 +1,41 @@
+%% System architecture of hotel-offer-orchestrator (rendered in README.md §5).
+%% Solid edges: the required assignment path. Dotted edges: optional v2 features (each behind a FEATURE_* flag).
+flowchart LR
+  client(["Client / Postman / ops console"])
+
+  subgraph apiProc["api process (Express 5)"]
+    routes["Routes + zod validation<br/>HotelService"]
+    mocks["Mock Supplier A / B<br/>GET /supplierA/hotels, /supplierB/hotels"]
+  end
+
+  subgraph workerProc["worker process (Temporal worker)"]
+    wf["hotelOffersWorkflow<br/>(deterministic)"]
+    actA["fetchSupplierHotels(A)<br/>activity"]
+    actB["fetchSupplierHotels(B)<br/>activity"]
+    select["selectBestOffers<br/>pure function, runs in the workflow"]
+    persist["persistOffers<br/>activity"]
+    monitor["supplierMonitorWorkflow ×2<br/>(optional)"]
+    warmup["cacheWarmupWorkflow<br/>(optional, Schedule every 2m)"]
+  end
+
+  temporal[("Temporal server<br/>+ PostgreSQL")]
+  redis[("Redis 7")]
+
+  client -->|"GET /api/hotels?city=…"| routes
+  routes -->|"1. start or join run<br/>hotel-offers-&lt;city&gt; (USE_EXISTING)"| temporal
+  temporal <-->|"task queue: hotel-offers"| wf
+  wf -->|parallel| actA
+  wf -->|parallel| actB
+  actA -->|HTTP| mocks
+  actB -->|HTTP| mocks
+  actA --> select
+  actB --> select
+  select --> persist
+  persist -->|"writeCityOffers.lua<br/>(atomic, versioned, TTL)"| redis
+  routes -->|"filterByPrice.lua<br/>(only when minPrice/maxPrice given)"| redis
+
+  monitor -.->|probe| mocks
+  monitor -.->|circuit state| redis
+  actA -.->|read circuit| redis
+  actB -.->|read circuit| redis
+  warmup -.->|"child hotelOffersWorkflow per city"| wf

@@ -22,6 +22,8 @@ function setMetaHeaders(res: Response, r: OffersResult): void {
   res.setHeader('X-Suppliers-Status', r.suppliersStatus);
   res.setHeader('X-Result-Status', r.resultStatus);
   res.setHeader('X-Cache', r.cache);
+  // Additive: whether this request joined a run started by another request.
+  if (r.coalesced !== undefined) res.setHeader('X-Coalesced', String(r.coalesced));
 }
 
 export interface HotelsRouterOptions {
@@ -68,7 +70,9 @@ export function hotelsRouter(service: HotelService, opts: HotelsRouterOptions): 
         minPrice: q.minPrice,
         maxPrice: q.maxPrice,
         cache: result.cache,
-        winners: result.offers.length,
+        filterMs: result.filterMs,
+        coalesced: result.coalesced,
+        hotels: result.offers.length,
         workflowId: result.workflowId,
         runId: result.runId,
         resultStatus: result.resultStatus,
