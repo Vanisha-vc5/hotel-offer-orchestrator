@@ -1,7 +1,6 @@
 # Design notes
 
-The detailed reasoning behind each design decision. The [README](../README.md) has the short version, and the
-cache write policy (versioning and partial results) is in README §10.
+The longer reasoning behind the design. The [README](../README.md) has the short version.
 
 **Temporal for orchestration.** Fan-out, retries with backoff, timeouts, partial failure and "what happened in
 this request?" are exactly what Temporal provides. Each request leaves a durable, inspectable history in the
