@@ -8,6 +8,7 @@
  * .env.example when missing, e.g. in CI).
  */
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 
@@ -39,7 +40,12 @@ function readEnvFile(): Record<string, string> {
 const dotenv = readEnvFile();
 const API = `http://localhost:${dotenv.API_HOST_PORT || '3000'}`;
 const REDIS_URL = `redis://localhost:${dotenv.REDIS_HOST_PORT || '6379'}/15`;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? dotenv.ADMIN_TOKEN ?? '';
+// A per-run token when none is configured: exercises the token-protected paths and is required
+// by the benchmark's X-Coalescing override. Exported so docker compose and newman pick it up.
+const GENERATED_TOKEN = !(process.env.ADMIN_TOKEN || dotenv.ADMIN_TOKEN);
+const ADMIN_TOKEN =
+  process.env.ADMIN_TOKEN || dotenv.ADMIN_TOKEN || `verify-${randomBytes(16).toString('hex')}`;
+process.env.ADMIN_TOKEN = ADMIN_TOKEN;
 const ADMIN: Record<string, string> = ADMIN_TOKEN ? { 'x-admin-token': ADMIN_TOKEN } : {};
 
 /** Runs a shell command, streaming output; resolves with exit code and the output tail. */
@@ -265,7 +271,7 @@ async function main(): Promise<void> {
     await step(
       'docker compose up --build --wait (all services healthy)',
       async () => {
-        const { code } = await sh('docker compose up --build -d --wait --wait-timeout 420');
+        const { code } = await sh('docker compose up --build -d --wait --wait-timeout 600');
         if (code !== 0) throw new Error(`exit ${code}`);
         const { out } = await sh('docker compose ps --format "{{.Service}}={{.Health}}"');
         const services = out.trim().split(/\r?\n/).filter(Boolean);
@@ -326,6 +332,10 @@ async function main(): Promise<void> {
     process.stderr.write(`\n${(err as Error).message}\n`);
   } finally {
     await writeReport();
+    if (GENERATED_TOKEN) {
+      // Leave the stack in its normal (token-less local) configuration.
+      await sh('docker compose up -d --wait --wait-timeout 300', { ADMIN_TOKEN: '' });
+    }
   }
   if (!results.length || results.some((r) => !r.ok)) process.exitCode = 1;
 }

@@ -93,6 +93,35 @@ bash /opt/hotel-offer-orchestrator/deploy/update.sh
 It runs `git pull --ff-only`, rebuilds the app image, recreates only what changed (data volumes are kept), waits
 until everything is healthy, prunes old images and checks `https://<domain>/health/live`.
 
+### From Windows (PowerShell)
+
+The VM commands run inside the SSH session, so they are the same on every OS. On your Windows machine:
+
+```powershell
+# Connect (OpenSSH ships with Windows 10/11)
+ssh ubuntu@<public-ip>
+
+# Smoke-test the live site from the repo folder (Node 24 on PATH)
+npm run smoke -- --url https://<your-domain>
+
+# Postman against production (the token is in /opt/hotel-offer-orchestrator/.env on the VM)
+$env:ADMIN_TOKEN = "<token>"
+npx newman run postman/HotelOfferOrchestrator.postman_collection.json `
+  -e postman/production.postman_environment.json `
+  --env-var baseUrl=https://<your-domain> --env-var adminToken=$env:ADMIN_TOKEN
+
+# Reset chaos afterwards
+Invoke-RestMethod -Method Delete -Uri https://<your-domain>/admin/chaos -Headers @{ "x-admin-token" = $env:ADMIN_TOKEN }
+
+# Temporal UI through an SSH tunnel, then open http://localhost:8080
+ssh -L 8080:127.0.0.1:8080 ubuntu@<public-ip>
+```
+
+**LLM in production:** `setup-vm.sh` writes `LLM_PROVIDER=none`, and the prod override defaults to `none`, so a
+public endpoint can't run up model costs. Natural-language search still works through the rules parser. To opt
+in, set `LLM_PROVIDER`, `LLM_API_KEY` and (optionally) a low `LLM_DAILY_CALL_LIMIT` in `.env`, then run
+`deploy/update.sh`.
+
 ## 5. Operating the deployment
 
 ```bash

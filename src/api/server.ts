@@ -81,7 +81,7 @@ function buildDeps(cfg: Config): AppDeps {
       ...new Set([...supplierAHotels, ...supplierBHotels].map((h) => h.city.toLowerCase())),
       ...cfg.WARMUP_CITIES,
     ];
-    const llm = createToolCaller(cfg);
+    const llm = createToolCaller(cfg, redis);
     const parsers: QueryParser[] = [
       ...(llm ? [new LlmQueryParser(llm)] : []),
       new RulesQueryParser([...new Set(knownCities)]),

@@ -1720,16 +1720,21 @@
           "response": []
         },
         {
-          "name": "X-Coalescing: off -> own workflow run",
+          "name": "X-Coalescing: off (needs admin token)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('dedicated workflow id, same contract', function () {",
+                  "const hasToken = !!pm.variables.get('adminToken');",
+                  "pm.test(hasToken ? 'valid token: dedicated workflow id' : 'no admin token: override ignored (coalesced)', function () {",
                   "  pm.response.to.have.status(200);",
-                  "  pm.expect(pm.response.headers.get('X-Workflow-Id')).to.match(/^hotel-offers-delhi--/);",
+                  "  const id = pm.response.headers.get('X-Workflow-Id');",
+                  "  if (hasToken) pm.expect(id).to.match(/^hotel-offers-delhi--/);",
+                  "  else pm.expect(id).to.eql('hotel-offers-delhi');",
+                  "});",
+                  "pm.test('same contract either way', function () {",
                   "  const body = pm.response.json();",
                   "  pm.expect(body).to.have.lengthOf(7);",
                   "  pm.expect(Object.keys(body[0])).to.eql(['name', 'price', 'supplier', 'commissionPct']);",

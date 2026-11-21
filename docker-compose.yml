@@ -25,6 +25,12 @@ x-app-env: &app-env
   # v2 feature flags (default on; false = exact v1 behaviour)
   FEATURE_BENCHMARK: ${FEATURE_BENCHMARK:-true}
   COALESCING_ENABLED: ${COALESCING_ENABLED:-true}
+  # Local stack runs NODE_ENV=production; allow the benchmark override here (prod override sets false).
+  ALLOW_COALESCING_OVERRIDE: ${ALLOW_COALESCING_OVERRIDE:-true}
+  # Local demo stack: /admin stays open when no ADMIN_TOKEN is set (prod override sets false).
+  ALLOW_OPEN_ADMIN: ${ALLOW_OPEN_ADMIN:-true}
+  # From the shell or .env; npm run verify injects a per-run token.
+  ADMIN_TOKEN: ${ADMIN_TOKEN:-}
   FEATURE_MONITOR: ${FEATURE_MONITOR:-true}
   FEATURE_WARMUP: ${FEATURE_WARMUP:-true}
   FEATURE_ASK: ${FEATURE_ASK:-true}

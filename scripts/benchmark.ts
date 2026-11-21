@@ -102,6 +102,12 @@ function machineInfo(): string[] {
 }
 
 async function main(): Promise<void> {
+  if (!process.env.ADMIN_TOKEN) {
+    throw new Error(
+      'Set ADMIN_TOKEN (same value as the stack, e.g. in .env): the X-Coalescing: off comparison ' +
+        'and the rate-limit bypass only work with a valid admin token.',
+    );
+  }
   await admin('GET', '/admin/metrics/suppliers'); // fails fast if FEATURE_BENCHMARK is off
   await admin('DELETE', '/admin/chaos').catch(() => undefined); // make sure both suppliers are up
   await hit('on', 'bench-warmup'); // warm connections and the worker

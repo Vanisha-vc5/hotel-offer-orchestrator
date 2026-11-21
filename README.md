@@ -19,6 +19,36 @@ honest `503` when both are, a monitor-driven **circuit breaker** that skips a de
 **request coalescing** so a burst of identical requests shares one workflow. Everything can be shown live from
 an ops console with chaos controls, and one command verifies all of it from a clean slate.
 
+### Requirements traceability
+
+Every item in the assignment, the code that implements it, and the automated check that proves it. "PM n" is
+folder _n_ of the [Postman collection](postman/HotelOfferOrchestrator.postman_collection.json).
+
+| Assignment requirement                                                                | Implemented in                                                                                                                                 | Proven by                                                                                                                    |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Temporal workflow calls **both suppliers in parallel**                                | [`hotelOffers.workflow.ts`](src/temporal/workflows/hotelOffers.workflow.ts) (`Promise.allSettled`)                                             | [workflow test](test/workflow/hotelOffers.workflow.test.ts) "happy path" · PM 3                                              |
+| **Dedupe** by hotel name (case, spaces, within one supplier)                          | [`selectBestOffers.ts`](src/domain/selectBestOffers.ts)                                                                                        | [unit tests](test/unit/selectBestOffers.test.ts) "dedupes…" · PM 3 "no duplicate names"                                      |
+| **Cheaper offer wins** (tie → higher commission → A)                                  | [`selectBestOffers.ts`](src/domain/selectBestOffers.ts)                                                                                        | unit tests "picks Supplier A/B when cheaper", "breaks a price tie" · PM 3 (Holtin = B 5340, Hyatt = B)                       |
+| **Single-supplier hotels** are kept                                                   | [`selectBestOffers.ts`](src/domain/selectBestOffers.ts)                                                                                        | unit test "keeps single-source hotels" · PM 3 `city=goa`                                                                     |
+| One supplier down → partial result; both down → `503`                                 | workflow + [`errorHandler.ts`](src/api/middleware/errorHandler.ts)                                                                             | workflow tests "supplier B throws", "both suppliers throw" · PM 7                                                            |
+| **Save results to Redis** (atomic, with TTL)                                          | [`hotelRepository.ts`](src/infra/hotelRepository.ts) `saveCityOffers` via the `persistOffers` activity                                         | [repository tests](test/integration/hotelRepository.test.ts) "TTL", "atomically replaces"                                    |
+| **Price filtering inside Redis** (`minPrice`/`maxPrice`)                              | [`filterByPrice.lua`](src/infra/lua/filterByPrice.lua) (sorted set + `HMGET`, one call)                                                        | repository tests "inclusive min/max", "open-ended" · PM 4                                                                    |
+| **Response format:** a bare array of `{name, price, supplier, commissionPct}`, sorted | [`hotels.routes.ts`](src/api/routes/hotels.routes.ts)                                                                                          | [contract guard](test/integration/contract.guard.test.ts) (byte-for-byte) · [API tests](test/integration/api.test.ts) · PM 3 |
+| Mock Supplier A / B APIs                                                              | [`suppliers.routes.ts`](src/api/routes/suppliers.routes.ts), [`src/mocks/`](src/mocks)                                                         | PM 2                                                                                                                         |
+| Validation and error format                                                           | [`validation.ts`](src/api/validation.ts), [`errorHandler.ts`](src/api/middleware/errorHandler.ts)                                              | API tests "validation (400)" · PM 6                                                                                          |
+| **Docker:** the whole stack with one command                                          | [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml)                                                                         | [`npm run verify`](docs/verification-report.md) step 2 · [E2E CI](.github/workflows/e2e.yml)                                 |
+| **Postman:** overlap city (delhi, both suppliers)                                     | [collection](postman/HotelOfferOrchestrator.postman_collection.json)                                                                           | PM 3 + PM 4 (all assertions pass, run twice in a row)                                                                        |
+| **Postman:** city with no results                                                     | collection                                                                                                                                     | PM 5 `city=atlantis` → `200 []`                                                                                              |
+| **Postman:** supplier down                                                            | collection + chaos API                                                                                                                         | PM 7 (partial, `503`, degraded health) and PM 8 (flaky, slow)                                                                |
+| **README**                                                                            | this file                                                                                                                                      | –                                                                                                                            |
+| **Bonus: `/health`** checks both suppliers                                            | [`healthService.ts`](src/api/services/healthService.ts)                                                                                        | API tests "health" · PM 1, PM 7                                                                                              |
+| **Bonus: logging and error handling**                                                 | [`logger.ts`](src/infra/logger.ts), [`requestId.ts`](src/api/middleware/requestId.ts), [`errorHandler.ts`](src/api/middleware/errorHandler.ts) | API tests "error mapping" · request ID traced into activity logs ([build report §5](docs/BUILD_REPORT.md))                   |
+
+**Beyond the brief** (v2, additive, each behind a flag): coalescing benchmark · supplier monitor workflows and
+circuit breaker · Temporal Schedule cache warm-up · natural-language search · production deployment with HTTPS ·
+near-duplicate detection · ops console · one-command verification. See [Highlights](#highlights) and the
+[changelog](CHANGELOG.md).
+
 **Live demo:** _not deployed yet._ Deploy with [`deploy/setup-vm.sh`](docs/DEPLOYMENT.md), then put the URL
 here.
 
@@ -283,6 +313,10 @@ npm run dev:worker   # in a second terminal
 
 ## API reference
 
+Interactive docs for every endpoint, with examples, are at **<http://localhost:3000/docs>**:
+
+![OpenAPI docs at /docs](docs/images/openapi.png)
+
 Every error, on any route, has the same shape. Stack traces appear only when `NODE_ENV=development`:
 
 ```json
@@ -430,6 +464,10 @@ An LLM error, a timeout, invalid output, or an invalid city all fall back to rul
 `UNPROCESSABLE_QUERY`, with example queries in `details`. Interpretations are cached in Redis
 by query hash for an hour (`X-Parser-Cache: HIT`).
 
+**Cost guard:** every LLM call (ask parser and duplicate judge) counts against `LLM_DAILY_CALL_LIMIT` (default
+200 per UTC day, Redis counter). Once it is reached, or if the counter is unreachable, the rules parser or the
+similarity-only verdict answers instead, and a warning is logged.
+
 **Safety measures:**
 
 - The query is limited to 300 characters.
@@ -442,8 +480,10 @@ by query hash for an hour (`X-Parser-Cache: HIT`).
 **Enabling a provider** (in `.env`, then restart `api`):
 
 ```dotenv
-# Anthropic (official @anthropic-ai/sdk). LLM_MODEL defaults to claude-haiku-4-5.
+# Anthropic (official @anthropic-ai/sdk). LLM_MODEL defaults to claude-haiku-4-5; any model ID works,
+# e.g. LLM_MODEL=claude-haiku-5-5 (listed by the SDK; try one call first, since this code forces tool_choice).
 LLM_PROVIDER=anthropic
+LLM_MODEL=claude-haiku-4-5
 LLM_API_KEY=sk-ant-...          # or leave empty and set ANTHROPIC_API_KEY
 
 # Any OpenAI-compatible endpoint (Groq, OpenRouter, local Ollama, ...)
@@ -466,8 +506,7 @@ works offline and keeps helmet's strict CSP (`script-src 'self'`, no inline scri
   memory only.
 - **Insights:** the decision table and the possible duplicates.
 
-![Ops console](docs/images/console.png)
-_Screenshot placeholder: open <http://localhost:3000/console> and save a screenshot as `docs/images/console.png`._
+![Ops console: a delhi search with supplier badges, header chips, live supplier health and chaos controls](docs/images/console.png)
 
 ### Mock suppliers
 
@@ -619,9 +658,7 @@ call in about 5 ms), while the unfiltered endpoint still runs a fresh workflow a
 `DELETE /admin/chaos` also clears the warm-up cities' caches, so a warm-up that ran during a "supplier down"
 test can't leave partial data behind.
 
-![The cache-warmup Schedule in the Temporal UI](docs/images/temporal-schedule.png)
-_Screenshot placeholder: open <http://localhost:8080/namespaces/default/schedules/cache-warmup> and save it as
-`docs/images/temporal-schedule.png`._
+![The cache-warmup Schedule in the Temporal UI: running, every 2 minutes, recent runs completed](docs/images/temporal-schedule.png)
 
 **Near-duplicate detection is report-only.** Suppliers name the same property differently ("Radisson Blu" vs
 "Radison Blu", "The Leela Palace" vs "Leela Palace"). The graded endpoint still dedupes by **exact normalized
@@ -678,7 +715,7 @@ curl -XDELETE $B/admin/chaos
 
 # 5. Request coalescing: 20 concurrent requests → one workflow run (scripts need `npm ci` once, Node 24)
 npm run demo:coalescing                # "distinct runs: 1 … PASS"
-npm run benchmark                      # N = 1…200, coalescing on vs off → docs/benchmarks.md
+ADMIN_TOKEN=<token> npm run benchmark  # N = 1…200, on vs off → docs/benchmarks.md (stack needs the same ADMIN_TOKEN)
 
 # 6. Infrastructure failures
 docker compose stop temporal  && curl -i "$B/api/hotels?city=delhi"   # 503 TEMPORAL_UNAVAILABLE in ~5s
@@ -687,8 +724,13 @@ docker compose stop redis     && curl -i "$B/api/hotels?city=delhi"   # 503 REDI
 docker compose start redis
 ```
 
-In the **Temporal UI**, open `hotel-offers-delhi` to see each attempt (`ActivityTaskFailed` → retry), the
-failure messages and the result. Every worker log line carries `requestId`, `workflowId`, `attempt`,
+In the **Temporal UI**, open `hotel-offers-delhi`. Temporal records a retried activity once, on its final
+attempt: for the flaky run, B's `ActivityTaskStarted` shows **Attempt 3** and the **last failure** ("Supplier B
+responded 500"), next to the retry policy from the scheduled event:
+
+![Temporal UI: the flaky Supplier B fetch succeeded on attempt 3; the last failure was HTTP 500](docs/images/temporal-retries.png)
+
+Every worker log line carries `requestId`, `workflowId`, `attempt`,
 `latencyMs` and the received/accepted/dropped record counts:
 
 ```bash
@@ -700,58 +742,61 @@ docker compose logs worker | grep '"requestId":"<X-Request-Id from the response>
 All config is validated by zod at startup (`src/infra/config.ts`). An invalid value stops the process with a
 list of every problem. Compose reads `.env`; `.env.example` has the defaults.
 
-| Variable                                                                             | Default                                  | Description                                                                                              |
-| ------------------------------------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                                                                           | `development` (containers: `production`) | `development` enables pretty logs and stack traces in errors                                             |
-| `LOG_LEVEL`                                                                          | `info`                                   | pino level                                                                                               |
-| `PORT`                                                                               | `3000`                                   | API port                                                                                                 |
-| `TRUST_PROXY`                                                                        | `false`                                  | set `true` behind nginx (client IPs for rate limiting)                                                   |
-| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX`                                            | `60000` / `300`                          | rate limit on `/api`                                                                                     |
-| `SHUTDOWN_TIMEOUT_MS`                                                                | `10000`                                  | max drain time on SIGTERM                                                                                |
-| `HEALTH_CHECK_TIMEOUT_MS`                                                            | `2000`                                   | per-dependency probe timeout                                                                             |
-| `REDIS_URL`                                                                          | `redis://localhost:6379`                 | Redis connection                                                                                         |
-| `CACHE_TTL_SECONDS`                                                                  | `300`                                    | TTL for complete results                                                                                 |
-| `PARTIAL_CACHE_TTL_SECONDS`                                                          | `30`                                     | TTL for partial results                                                                                  |
-| `TEMPORAL_ADDRESS`                                                                   | `localhost:7233`                         | Temporal frontend                                                                                        |
-| `TEMPORAL_NAMESPACE`                                                                 | `default`                                | namespace                                                                                                |
-| `TEMPORAL_API_KEY`                                                                   | –                                        | Temporal Cloud API key (implies TLS)                                                                     |
-| `TEMPORAL_TLS`                                                                       | `false`                                  | TLS without client certs                                                                                 |
-| `TEMPORAL_TLS_CERT_PATH` / `TEMPORAL_TLS_KEY_PATH`                                   | –                                        | mTLS client cert and key (set both)                                                                      |
-| `TEMPORAL_TLS_SERVER_NAME`                                                           | –                                        | SNI override                                                                                             |
-| `TEMPORAL_CONNECT_MAX_ATTEMPTS`                                                      | `30`                                     | worker startup connect retries (backoff up to 5s)                                                        |
-| `TEMPORAL_START_TIMEOUT_MS`                                                          | `5000`                                   | gRPC deadline for starting a workflow                                                                    |
-| `WORKER_HEALTH_PORT`                                                                 | `3001`                                   | worker liveness endpoint                                                                                 |
-| `WORKFLOW_EXECUTION_TIMEOUT`                                                         | `30s`                                    | workflow hard timeout                                                                                    |
-| `SUPPLIER_ACTIVITY_TIMEOUT`                                                          | `4s`                                     | supplier `startToCloseTimeout`                                                                           |
-| `SUPPLIER_HTTP_TIMEOUT_MS`                                                           | `3500`                                   | HTTP abort timeout per attempt                                                                           |
-| `SUPPLIER_RETRY_INITIAL_INTERVAL`                                                    | `300ms`                                  | retry policy                                                                                             |
-| `SUPPLIER_RETRY_BACKOFF`                                                             | `2`                                      | retry policy                                                                                             |
-| `SUPPLIER_RETRY_MAX_INTERVAL`                                                        | `2s`                                     | retry policy                                                                                             |
-| `SUPPLIER_RETRY_MAX_ATTEMPTS`                                                        | `3`                                      | retry policy                                                                                             |
-| `PERSIST_ACTIVITY_TIMEOUT`                                                           | `5s`                                     | persist `startToCloseTimeout`                                                                            |
-| `PERSIST_RETRY_MAX_ATTEMPTS`                                                         | `5`                                      | persist retries                                                                                          |
-| `SUPPLIER_A_URL` / `SUPPLIER_B_URL`                                                  | `http://localhost:3000/supplierX/hotels` | supplier endpoints (compose: `http://api:3000/...`)                                                      |
-| `ENABLE_CHAOS`                                                                       | `true`                                   | enables `/admin/chaos*`                                                                                  |
-| `ADMIN_TOKEN`                                                                        | –                                        | if set, `/admin/*` requires `x-admin-token`                                                              |
-| `FEATURE_BENCHMARK`                                                                  | `true`                                   | supplier call counters, `X-Coalescing: off` and `x-benchmark: 1` rate-limit bypass for trusted operators |
-| `COALESCING_ENABLED`                                                                 | `true`                                   | `false` gives every request its own run (comparison only)                                                |
-| `FEATURE_MONITOR`                                                                    | `true`                                   | supplier monitor workflows, circuit breaker, `X-Circuit-State`, `/health` monitor block                  |
-| `MONITOR_INTERVAL` / `MONITOR_PROBE_TIMEOUT_MS`                                      | `15s` / `2000`                           | probe cadence and per-probe timeout                                                                      |
-| `MONITOR_CONTINUE_AS_NEW_EVERY`                                                      | `100`                                    | iterations per monitor run before continue-as-new                                                        |
-| `CIRCUIT_FAILURE_THRESHOLD` / `CIRCUIT_COOLDOWN`                                     | `3` / `30s`                              | consecutive failed probes to open; time before a half-open probe                                         |
-| `FEATURE_WARMUP`                                                                     | `true`                                   | `cache-warmup` Temporal Schedule (deleted when `false`)                                                  |
-| `WARMUP_CITIES` / `WARMUP_INTERVAL`                                                  | `delhi,mumbai,bangalore` / `2m`          | cities refreshed on each tick, and tick interval                                                         |
-| `FEATURE_ASK`                                                                        | `true`                                   | `POST /api/hotels/ask` natural-language search                                                           |
-| `LLM_PROVIDER`                                                                       | `none`                                   | `none` (rules parser only), `anthropic` or `openai-compatible`                                           |
-| `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL`                                         | `claude-haiku-4-5` (anthropic) / – / –   | model, key and base URL (base URL and model required for openai-compatible)                              |
-| `LLM_TIMEOUT_MS`                                                                     | `5000`                                   | per-call LLM timeout; on timeout the rules parser answers                                                |
-| `FEATURE_DUPLICATES`                                                                 | `true`                                   | `possibleDuplicates` in insights (report-only); ambiguous pairs use the LLM when configured              |
-| `FEATURE_CONSOLE`                                                                    | `true`                                   | ops console at `/console`                                                                                |
-| `TEMPORAL_UI_URL`                                                                    | `http://localhost:8080`                  | Temporal UI base used for workflow links in the console                                                  |
-| `REQUIRE_ADMIN_TOKEN`                                                                | `false` (prod override: `true`)          | refuse to start without a 16+ character `ADMIN_TOKEN`                                                    |
-| `PUBLIC_DOMAIN`                                                                      | –                                        | hostname Caddy serves and gets a certificate for (prod override only)                                    |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD`                                                | `temporal` / `temporal`                  | compose only (Temporal persistence)                                                                      |
-| `API_HOST_PORT` / `REDIS_HOST_PORT` / `TEMPORAL_HOST_PORT` / `TEMPORAL_UI_HOST_PORT` | `3000` / `6379` / `7233` / `8080`        | compose host bindings; can be `127.0.0.1:PORT`                                                           |
+| Variable                                                                             | Default                                      | Description                                                                                                                                                             |
+| ------------------------------------------------------------------------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                                                           | `development` (containers: `production`)     | `development` enables pretty logs and stack traces in errors                                                                                                            |
+| `LOG_LEVEL`                                                                          | `info`                                       | pino level                                                                                                                                                              |
+| `PORT`                                                                               | `3000`                                       | API port                                                                                                                                                                |
+| `TRUST_PROXY`                                                                        | `false`                                      | set `true` behind nginx (client IPs for rate limiting)                                                                                                                  |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX`                                            | `60000` / `300`                              | rate limit on `/api`                                                                                                                                                    |
+| `SHUTDOWN_TIMEOUT_MS`                                                                | `10000`                                      | max drain time on SIGTERM                                                                                                                                               |
+| `HEALTH_CHECK_TIMEOUT_MS`                                                            | `2000`                                       | per-dependency probe timeout                                                                                                                                            |
+| `REDIS_URL`                                                                          | `redis://localhost:6379`                     | Redis connection                                                                                                                                                        |
+| `CACHE_TTL_SECONDS`                                                                  | `300`                                        | TTL for complete results                                                                                                                                                |
+| `PARTIAL_CACHE_TTL_SECONDS`                                                          | `30`                                         | TTL for partial results                                                                                                                                                 |
+| `TEMPORAL_ADDRESS`                                                                   | `localhost:7233`                             | Temporal frontend                                                                                                                                                       |
+| `TEMPORAL_NAMESPACE`                                                                 | `default`                                    | namespace                                                                                                                                                               |
+| `TEMPORAL_API_KEY`                                                                   | –                                            | Temporal Cloud API key (implies TLS)                                                                                                                                    |
+| `TEMPORAL_TLS`                                                                       | `false`                                      | TLS without client certs                                                                                                                                                |
+| `TEMPORAL_TLS_CERT_PATH` / `TEMPORAL_TLS_KEY_PATH`                                   | –                                            | mTLS client cert and key (set both)                                                                                                                                     |
+| `TEMPORAL_TLS_SERVER_NAME`                                                           | –                                            | SNI override                                                                                                                                                            |
+| `TEMPORAL_CONNECT_MAX_ATTEMPTS`                                                      | `30`                                         | worker startup connect retries (backoff up to 5s)                                                                                                                       |
+| `TEMPORAL_START_TIMEOUT_MS`                                                          | `5000`                                       | gRPC deadline for starting a workflow                                                                                                                                   |
+| `WORKER_HEALTH_PORT`                                                                 | `3001`                                       | worker liveness endpoint                                                                                                                                                |
+| `WORKFLOW_EXECUTION_TIMEOUT`                                                         | `30s`                                        | workflow hard timeout                                                                                                                                                   |
+| `SUPPLIER_ACTIVITY_TIMEOUT`                                                          | `4s`                                         | supplier `startToCloseTimeout`                                                                                                                                          |
+| `SUPPLIER_HTTP_TIMEOUT_MS`                                                           | `3500`                                       | HTTP abort timeout per attempt                                                                                                                                          |
+| `SUPPLIER_RETRY_INITIAL_INTERVAL`                                                    | `300ms`                                      | retry policy                                                                                                                                                            |
+| `SUPPLIER_RETRY_BACKOFF`                                                             | `2`                                          | retry policy                                                                                                                                                            |
+| `SUPPLIER_RETRY_MAX_INTERVAL`                                                        | `2s`                                         | retry policy                                                                                                                                                            |
+| `SUPPLIER_RETRY_MAX_ATTEMPTS`                                                        | `3`                                          | retry policy                                                                                                                                                            |
+| `PERSIST_ACTIVITY_TIMEOUT`                                                           | `5s`                                         | persist `startToCloseTimeout`                                                                                                                                           |
+| `PERSIST_RETRY_MAX_ATTEMPTS`                                                         | `5`                                          | persist retries                                                                                                                                                         |
+| `SUPPLIER_A_URL` / `SUPPLIER_B_URL`                                                  | `http://localhost:3000/supplierX/hotels`     | supplier endpoints (compose: `http://api:3000/...`)                                                                                                                     |
+| `ENABLE_CHAOS`                                                                       | `true`                                       | enables `/admin/chaos*`                                                                                                                                                 |
+| `ADMIN_TOKEN`                                                                        | –                                            | if set, `/admin/*` requires `x-admin-token`                                                                                                                             |
+| `FEATURE_BENCHMARK`                                                                  | `true`                                       | supplier call counters, `X-Coalescing: off` and `x-benchmark: 1` rate-limit bypass (valid `ADMIN_TOKEN` required; off in production unless `ALLOW_COALESCING_OVERRIDE`) |
+| `COALESCING_ENABLED`                                                                 | `true`                                       | `false` gives every request its own run (comparison only)                                                                                                               |
+| `FEATURE_MONITOR`                                                                    | `true`                                       | supplier monitor workflows, circuit breaker, `X-Circuit-State`, `/health` monitor block                                                                                 |
+| `MONITOR_INTERVAL` / `MONITOR_PROBE_TIMEOUT_MS`                                      | `15s` / `2000`                               | probe cadence and per-probe timeout                                                                                                                                     |
+| `MONITOR_CONTINUE_AS_NEW_EVERY`                                                      | `100`                                        | iterations per monitor run before continue-as-new                                                                                                                       |
+| `CIRCUIT_FAILURE_THRESHOLD` / `CIRCUIT_COOLDOWN`                                     | `3` / `30s`                                  | consecutive failed probes to open; time before a half-open probe                                                                                                        |
+| `FEATURE_WARMUP`                                                                     | `true`                                       | `cache-warmup` Temporal Schedule (deleted when `false`)                                                                                                                 |
+| `WARMUP_CITIES` / `WARMUP_INTERVAL`                                                  | `delhi,mumbai,bangalore` / `2m`              | cities refreshed on each tick, and tick interval                                                                                                                        |
+| `FEATURE_ASK`                                                                        | `true`                                       | `POST /api/hotels/ask` natural-language search                                                                                                                          |
+| `LLM_PROVIDER`                                                                       | `none`                                       | `none` (rules parser only), `anthropic` or `openai-compatible`                                                                                                          |
+| `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL`                                         | `claude-haiku-4-5` (anthropic) / – / –       | model, key and base URL (base URL and model required for openai-compatible)                                                                                             |
+| `LLM_TIMEOUT_MS`                                                                     | `5000`                                       | per-call LLM timeout; on timeout the rules parser answers                                                                                                               |
+| `LLM_DAILY_CALL_LIMIT`                                                               | `200`                                        | max LLM calls per UTC day (ask + duplicate judge); then deterministic fallbacks                                                                                         |
+| `ALLOW_COALESCING_OVERRIDE`                                                          | `false` (dev compose: `true`, prod: `false`) | allows the benchmark overrides under `NODE_ENV=production`; they always need a valid `ADMIN_TOKEN`                                                                      |
+| `ALLOW_OPEN_ADMIN`                                                                   | `false` (dev compose: `true`, prod: `false`) | without `ADMIN_TOKEN`, `/admin` is closed under `NODE_ENV=production` unless this is `true`                                                                             |
+| `FEATURE_DUPLICATES`                                                                 | `true`                                       | `possibleDuplicates` in insights (report-only); ambiguous pairs use the LLM when configured                                                                             |
+| `FEATURE_CONSOLE`                                                                    | `true`                                       | ops console at `/console`                                                                                                                                               |
+| `TEMPORAL_UI_URL`                                                                    | `http://localhost:8080`                      | Temporal UI base used for workflow links in the console                                                                                                                 |
+| `REQUIRE_ADMIN_TOKEN`                                                                | `false` (prod override: `true`)              | refuse to start without a 16+ character `ADMIN_TOKEN`                                                                                                                   |
+| `PUBLIC_DOMAIN`                                                                      | –                                            | hostname Caddy serves and gets a certificate for (prod override only)                                                                                                   |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD`                                                | `temporal` / `temporal`                      | compose only (Temporal persistence)                                                                                                                                     |
+| `API_HOST_PORT` / `REDIS_HOST_PORT` / `TEMPORAL_HOST_PORT` / `TEMPORAL_UI_HOST_PORT` | `3000` / `6379` / `7233` / `8080`            | compose host bindings; can be `127.0.0.1:PORT`                                                                                                                          |
 
 ## Testing
 
@@ -775,6 +820,12 @@ npm run lint && npm run typecheck
 
 The integration tests use **DB 15** (`REDIS_URL=redis://localhost:6379/15` in CI) so they never touch the
 running stack's data. Override `REDIS_URL` if your Redis is on another port.
+
+**Screenshots and smoke checks.** `npm run screenshots` regenerates the four README images from the running
+stack using Playwright with Chromium. Run `npx playwright install chromium` once first; the images are
+palette-compressed with sharp to 20–60 KB. `npm run smoke -- --url <base-url>` checks any deployment: `/health`
+is up, delhi matches the 7-hotel contract byte-for-byte, the 3-hotel filter is exact, and `/console` and `/docs`
+are served. Add `--insecure` for a local self-signed certificate.
 
 **One-command verification.** `npm run verify` (`scripts/verify.ts`) runs these steps in order:
 

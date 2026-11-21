@@ -10,7 +10,7 @@ import type { HotelRepository } from '../infra/hotelRepository';
 import { logger } from '../infra/logger';
 import type { ChaosStore } from '../mocks/chaos';
 import type { SupplierMetrics } from '../mocks/supplierMetrics';
-import { isTrustedOperator } from './middleware/operatorAuth';
+import { hasValidAdminToken } from './middleware/operatorAuth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { requestId, responseTime } from './middleware/requestId';
 import { openApiDocument } from './openapi';
@@ -48,6 +48,9 @@ export interface AppDeps {
 /** Builds the Express app from injected dependencies (exported for supertest). */
 export function createApp(deps: AppDeps): Express {
   const { cfg } = deps;
+  const production = cfg.NODE_ENV === 'production';
+  // Benchmark-only operator overrides: never in production unless explicitly allowed.
+  const overridesAllowed = cfg.FEATURE_BENCHMARK && (!production || cfg.ALLOW_COALESCING_OVERRIDE);
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', cfg.TRUST_PROXY);
@@ -81,16 +84,16 @@ export function createApp(deps: AppDeps): Express {
       handler: (_req, _res, next) => next(new AppError('RATE_LIMITED', 429, 'Too many requests')),
       // FEATURE_BENCHMARK: trusted load tests (x-benchmark: 1) are not rate limited.
       skip: (req) =>
-        cfg.FEATURE_BENCHMARK &&
+        overridesAllowed &&
         req.header('x-benchmark') === '1' &&
-        isTrustedOperator(req, cfg.ADMIN_TOKEN),
+        hasValidAdminToken(req, cfg.ADMIN_TOKEN),
     }),
   );
 
   app.use(
     '/api',
     hotelsRouter(deps.hotelService, {
-      allowCoalescingOverride: cfg.FEATURE_BENCHMARK,
+      allowCoalescingOverride: overridesAllowed,
       adminToken: cfg.ADMIN_TOKEN,
       circuitHeader: deps.circuitHeader,
       duplicates: deps.duplicateService,
@@ -106,6 +109,7 @@ export function createApp(deps: AppDeps): Express {
       repository: deps.repository,
       chaosEnabled: cfg.ENABLE_CHAOS,
       adminToken: cfg.ADMIN_TOKEN,
+      production: production && !cfg.ALLOW_OPEN_ADMIN,
       metrics: deps.metrics,
       onChaosReset: deps.onChaosReset,
       extensions: deps.adminExtensions,

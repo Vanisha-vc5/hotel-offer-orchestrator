@@ -357,9 +357,12 @@ contract guard                                   → passing
 
 **Decisions**
 
-- **Model:** the plan's default `claude-haiku-5-5` **doesn't exist**. I checked against the Claude API reference;
-  the current Haiku is **`claude-haiku-4-5`**, which became the default (overridable with `LLM_MODEL`). Haiku 4.5
-  still supports forced `tool_choice`, which newer models such as Opus 5.5 and Fable 5.1 reject.
+- **Model:** the default is **`claude-haiku-4-5`** (overridable with `LLM_MODEL`). I originally wrote that the
+  plan's `claude-haiku-5-5` "doesn't exist", based on the Claude API reference's cached model table. **That was
+  wrong.** The pre-push audit found `'claude-haiku-5-5'` in the installed SDK's typed model list (1.12.0), which is
+  newer than that table. With no `ANTHROPIC_API_KEY` available to test either ID with a real call, the default
+  stays at the known-good `claude-haiku-4-5`. Set `LLM_MODEL=claude-haiku-5-5` to use the newer model. One caution:
+  this code forces `tool_choice`, which some newer models reject, so test 5-5 with one call first.
 - **Compose defaults to `LLM_PROVIDER=none`,** so the stack and CI run without secrets. The feature works fully on
   the rules parser.
 - **An LLM that returns no city falls through to rules** before a 422 is returned. Only city-bearing
@@ -636,3 +639,78 @@ fresh clone: compose up → 6 healthy; README curls OK; demo:coalescing PASS; ne
 ```
 
 Tagged `v2.0.0`.
+
+---
+
+# Pre-push audit, deployment prep and screenshots
+
+**Requirements traceability.** The README now has a table right under the pitch. Each assignment requirement (the
+workflow behaviours, Redis save and filtering, the response format, Docker, the three Postman items, the README,
+both bonus items) links to the code that implements it and the test or Postman folder that proves it. The v2 work
+is listed separately as "Beyond the brief".
+
+**Security pass**
+
+- **`X-Coalescing: off` and the `x-benchmark` rate-limit bypass** now require a configured, matching
+  `ADMIN_TOKEN` (`hasValidAdminToken`, constant-time compare). They are disabled entirely under
+  `NODE_ENV=production` unless `ALLOW_COALESCING_OVERRIDE=true`. The dev compose file sets it `true`; the prod
+  override and the default are `false`. Tests cover a valid token, a missing or wrong token, no token configured,
+  production, production plus allow, and flag off.
+- **`/admin/*` is token-protected per route group**, with one test each: chaos, chaos (mutating), cache, metrics,
+  circuits, monitor, warm-up and warm-up trigger. A missing or wrong token gets 401; the right token gets 2xx.
+  Without a configured token, `/admin` now **fails closed** under `NODE_ENV=production` unless
+  `ALLOW_OPEN_ADMIN=true`. That flag exists because the local demo stack also runs `NODE_ENV=production`.
+- **LLM budget guard:** `BudgetedToolCaller` counts every LLM call (ask parser and duplicate judge) in Redis
+  (`llm:calls:<UTC date>`, 2-day TTL) against `LLM_DAILY_CALL_LIMIT` (default 200). Over the limit, or with the
+  counter unreachable (fail closed), the rules parser or a similarity-only verdict answers and a warning is logged.
+  6 unit tests.
+- **Secret scan:** gitleaks 8.30.1 over all 19 commits and the working tree. It reported 4 findings, all false
+  positives: internal URLs such as `http://api:3000/supplierA/hotels` matching `generic-api-key`. A narrow
+  allowlist in `.gitleaks.toml` brought it to **no leaks found**. `.env` was never committed (it's gitignored), no
+  key-shaped strings appear anywhere in history, and `.env.example` holds only empty placeholders plus a
+  local-only `POSTGRES_PASSWORD` (which `setup-vm.sh` randomizes).
+
+**LLM model ID.** The installed SDK's typed model list includes `claude-haiku-5-5`, so the earlier "doesn't exist"
+claim (taken from a cached model table) was wrong, and the Enhancement 4 notes are corrected. No
+`ANTHROPIC_API_KEY` was available for a real call, so the default stays `claude-haiku-4-5`, and the README says how
+to set `LLM_MODEL`.
+
+**CI on Linux.** Nothing Windows-specific is in the code, scripts or workflows (the only `6380` is README
+troubleshooting text). `verify` uses `.env.example` defaults, waits up to 600 s, and injects a per-run admin
+token, then restores the token-less local configuration afterwards. The E2E job's timeout is 60 minutes, npm is
+cached, and no secrets are needed.
+
+**Deployment prep (Prompt 2):**
+
+- `scripts/smoke.ts` (`npm run smoke -- --url …`, plus `--insecure` for self-signed certificates) checks:
+  `/health` is up, delhi matches the 7-hotel contract **byte-exact**, the 3-hotel filter is byte-exact, and
+  `/console` and `/docs` are served. The library has an integration test, including a failing-contract case.
+- Production defaults to `LLM_PROVIDER=none` (in the prod override and `setup-vm.sh`).
+- `docs/DEPLOYMENT.md` has PowerShell equivalents for Windows.
+
+**Screenshots (Prompt 3).** `scripts/screenshots.ts` (`npm run screenshots`) uses Playwright 1.65.1 with
+Chromium at 1440×900 and sharp 0.35.5 palette compression. It produces `console.png` (32 KB), `temporal-retries.png`
+(52 KB, B's activity on **Attempt 3** with the last failure "Supplier B responded 500"), `temporal-schedule.png`
+(44 KB) and `openapi.png` (24 KB). They're embedded in the README. While doing this I found that the README wrongly
+said retries appear as `ActivityTaskFailed` events; Temporal records a single `ActivityTaskStarted` on the final
+attempt, with `attempt` and `lastFailure`, and the text is corrected.
+
+**Problems found and fixed**
+
+- `verify` failed its typecheck once, because I wrote `screenshots.ts` before its dependencies were installed,
+  while a run was in progress. The final run is clean.
+- The smoke script reported 0 ms timings, because the object literal evaluated `ms` before awaiting the check.
+- The first retries screenshot didn't show the retry; the script now expands and centres the "Attempt 3" row.
+- The worker in the prod override inherited the dev `ALLOW_*=true` values (harmless, since it serves no HTTP
+  admin routes). It's now pinned to `false`.
+
+**Verification**
+
+```
+npm run lint && npm run typecheck && npm test → 27 files, 227 tests passed
+gitleaks (history + tree, with allowlist)     → no leaks found
+npm run verify (clean slate, per-run token)   → ✅ 10/10: 95 + 17 + 115 tests; newman 61 requests / 148 assertions /
+                                                 0 failed; 5 chaos scenarios; benchmark N=50 (on: 3 runs, off: 50 runs)
+npm run smoke -- --url http://localhost:3000   → 5/5
+npm run screenshots                            → 4 images, 24–52 KB each
+```

@@ -69,6 +69,16 @@ const EnvSchema = z.object({
   FEATURE_BENCHMARK: bool.default(true),
   /** Request coalescing (one workflow run per city). false only for comparisons. */
   COALESCING_ENABLED: bool.default(true),
+  /**
+   * The X-Coalescing / x-benchmark operator overrides are disabled when NODE_ENV=production
+   * unless this is true. They always require a configured, matching ADMIN_TOKEN.
+   */
+  ALLOW_COALESCING_OVERRIDE: bool.default(false),
+  /**
+   * Without ADMIN_TOKEN, /admin is open in development but CLOSED under NODE_ENV=production
+   * unless this is true (the local docker-compose demo stack sets it; the prod override does not).
+   */
+  ALLOW_OPEN_ADMIN: bool.default(false),
 
   /** Enhancement 2: supplier monitor workflows + circuit breaker. */
   FEATURE_MONITOR: bool.default(true),
@@ -111,6 +121,8 @@ const EnvSchema = z.object({
   /** openai-compatible base URL, e.g. https://api.groq.com/openai/v1 or http://localhost:11434/v1 */
   LLM_BASE_URL: z.string().url().optional(),
   LLM_TIMEOUT_MS: ms.default(5_000),
+  /** Cost guard: max LLM calls per UTC day across ask + duplicate judge (Redis counter). */
+  LLM_DAILY_CALL_LIMIT: z.coerce.number().int().nonnegative().default(200),
 
   /** Enhancement 6: report-only near-duplicate detection in insights. */
   FEATURE_DUPLICATES: bool.default(true),

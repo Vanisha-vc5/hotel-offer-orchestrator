@@ -1,0 +1,9 @@
+# gitleaks configuration: the default rules plus one narrow allowlist entry.
+# `generic-api-key` flags the internal supplier URLs (http://api:3000/supplierA/hotels)
+# because of the path's entropy; they are not secrets.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Internal mock-supplier URLs, not credentials"
+regexes = ['''3000/supplier[ABX]/hotels''']

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Response } from 'express';
 import { buildInsights } from '../../domain/insights';
 import type { HotelOffer } from '../../domain/types';
-import { isTrustedOperator } from '../middleware/operatorAuth';
+import { hasValidAdminToken } from '../middleware/operatorAuth';
 import { elapsedMs } from '../middleware/requestId';
 import type { DuplicateService } from '../services/duplicateService';
 import type { HotelService, OffersResult } from '../services/hotelService';
@@ -25,7 +25,10 @@ function setMetaHeaders(res: Response, r: OffersResult): void {
 }
 
 export interface HotelsRouterOptions {
-  /** FEATURE_BENCHMARK: honour `X-Coalescing: off` from trusted operators. */
+  /**
+   * Honour `X-Coalescing: off` (benchmark comparisons). Only when allowed (FEATURE_BENCHMARK,
+   * and not production unless ALLOW_COALESCING_OVERRIDE) AND with a valid ADMIN_TOKEN.
+   */
   allowCoalescingOverride: boolean;
   adminToken?: string;
   /** FEATURE_MONITOR: value for the X-Circuit-State header, e.g. `A=closed;B=open`. */
@@ -36,11 +39,11 @@ export interface HotelsRouterOptions {
 
 export function hotelsRouter(service: HotelService, opts: HotelsRouterOptions): Router {
   const router = Router();
-  const coalesceFor = (req: Parameters<typeof isTrustedOperator>[0]): boolean =>
+  const coalesceFor = (req: Parameters<typeof hasValidAdminToken>[0]): boolean =>
     !(
       opts.allowCoalescingOverride &&
       req.header('x-coalescing') === 'off' &&
-      isTrustedOperator(req, opts.adminToken)
+      hasValidAdminToken(req, opts.adminToken)
     );
 
   /**

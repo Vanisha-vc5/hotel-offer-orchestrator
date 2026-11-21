@@ -63,6 +63,8 @@ if [[ ! -f .env ]]; then
   log "Creating .env from .env.example"
   cp .env.example .env
   set_env NODE_ENV production
+  # A public endpoint must not run up LLM costs: rules parser only unless you opt in later.
+  set_env LLM_PROVIDER none
   set_env ADMIN_TOKEN "$(openssl rand -hex 24)"
   set_env POSTGRES_PASSWORD "$(openssl rand -hex 16)"
 else

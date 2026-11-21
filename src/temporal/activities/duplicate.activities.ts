@@ -9,6 +9,7 @@ import type {
 import type { Decision } from '../../domain/types';
 import type { HotelRepository } from '../../infra/hotelRepository';
 import type { ToolCaller } from '../../infra/llm';
+import { LlmBudgetExceededError } from '../../infra/llmBudget';
 
 export interface Judgement {
   verdict: DuplicateVerdict;
@@ -81,7 +82,23 @@ export function createDuplicateActivities(
         });
         return { ...JudgementSchema.parse(raw), decidedBy: 'llm' };
       } catch (err) {
-        log.warn('duplicate judge failed; reporting uncertain', { city, err: String(err) });
+        const overBudget = err instanceof LlmBudgetExceededError;
+        log.warn(
+          overBudget
+            ? 'LLM daily budget reached; similarity-only verdict'
+            : 'duplicate judge failed; reporting uncertain',
+          {
+            city,
+            err: String(err),
+          },
+        );
+        if (overBudget) {
+          return {
+            verdict: 'uncertain',
+            decidedBy: 'similarity',
+            reason: `LLM daily budget reached; ${band}`,
+          };
+        }
         return {
           verdict: 'uncertain',
           decidedBy: 'similarity',

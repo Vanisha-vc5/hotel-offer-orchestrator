@@ -13,6 +13,8 @@ export interface AdminDeps {
   repository: HotelRepository;
   chaosEnabled: boolean;
   adminToken?: string;
+  /** Fail closed: /admin rejects everyone when no ADMIN_TOKEN is configured (production). */
+  production?: boolean;
   /** FEATURE_BENCHMARK: supplier call counters. */
   metrics?: SupplierMetrics;
   /**
@@ -27,7 +29,7 @@ export interface AdminDeps {
 export function adminRouter(deps: AdminDeps): Router {
   const { chaos, repository } = deps;
   const router = Router();
-  router.use(requireOperator(deps.adminToken));
+  router.use(requireOperator(deps.adminToken, deps.production ?? false));
 
   const notFound = (req: Parameters<RequestHandler>[0]): NotFoundError =>
     new NotFoundError(`Route ${req.method} ${req.originalUrl} not found`);

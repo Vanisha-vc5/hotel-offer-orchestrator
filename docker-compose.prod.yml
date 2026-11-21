@@ -45,6 +45,10 @@ services:
       REQUIRE_ADMIN_TOKEN: 'true'
       ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN is required in production}
       TRUST_PROXY: 'true'
+      ALLOW_COALESCING_OVERRIDE: 'false'
+      ALLOW_OPEN_ADMIN: 'false'
+      # No paid LLM calls on a public endpoint unless explicitly set in .env.
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
     logging: *logging
     mem_limit: 512m
 
@@ -52,6 +56,9 @@ services:
     environment:
       REQUIRE_ADMIN_TOKEN: 'true'
       ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN is required in production}
+      ALLOW_COALESCING_OVERRIDE: 'false'
+      ALLOW_OPEN_ADMIN: 'false'
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
     logging: *logging
     mem_limit: 768m
 

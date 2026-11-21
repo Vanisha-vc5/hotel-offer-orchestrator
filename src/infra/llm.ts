@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
+import type { Redis } from 'ioredis';
 import type { Config } from './config';
+import { BudgetedToolCaller } from './llmBudget';
 
 /** JSON schema for a tool's input (object schema, all properties required). */
 export interface ToolSchema {
@@ -141,8 +143,17 @@ export class OpenAICompatibleToolCaller implements ToolCaller {
   }
 }
 
-/** Builds the configured tool caller, or undefined when LLM_PROVIDER=none. */
-export function createToolCaller(cfg: Config): ToolCaller | undefined {
+/**
+ * Builds the configured tool caller, or undefined when LLM_PROVIDER=none. With a
+ * Redis client it is wrapped in the daily budget guard (LLM_DAILY_CALL_LIMIT).
+ */
+export function createToolCaller(cfg: Config, redis?: Redis): ToolCaller | undefined {
+  const base = createBaseToolCaller(cfg);
+  if (!base || !redis) return base;
+  return new BudgetedToolCaller(base, redis, cfg.LLM_DAILY_CALL_LIMIT);
+}
+
+function createBaseToolCaller(cfg: Config): ToolCaller | undefined {
   switch (cfg.LLM_PROVIDER) {
     case 'anthropic':
       return new AnthropicToolCaller(

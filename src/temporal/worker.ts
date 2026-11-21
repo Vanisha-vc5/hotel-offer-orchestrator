@@ -72,7 +72,7 @@ async function main(): Promise<void> {
       repository,
       cfg,
       monitorStore,
-      toolCaller: createToolCaller(cfg),
+      toolCaller: createToolCaller(cfg, getRedis()),
     }),
     ...workflowSource(),
   });
