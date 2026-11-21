@@ -67,5 +67,5 @@ feature is additive and sits behind an env flag. With the flags off, the system 
 - Docker (multi-stage, Debian slim, non-root) and compose with healthchecks; unit, workflow and integration tests;
   a Postman collection; CI.
 
-[2.0.0]: https://github.com/OWNER/hotel-offer-orchestrator/compare/v1.0.0...v2.0.0
-[1.0.0]: https://github.com/OWNER/hotel-offer-orchestrator/releases/tag/v1.0.0
+[2.0.0]: https://github.com/Vanisha-vc5/hotel-offer-orchestrator/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/Vanisha-vc5/hotel-offer-orchestrator/releases/tag/v1.0.0

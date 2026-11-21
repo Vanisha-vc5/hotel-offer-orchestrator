@@ -57,8 +57,8 @@ Caddy needs a hostname that resolves to the VM so it can get a certificate from 
 On the VM:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/hotel-offer-orchestrator/main/deploy/setup-vm.sh -o setup-vm.sh
-REPO_URL=https://github.com/<owner>/hotel-offer-orchestrator.git \
+curl -fsSL https://raw.githubusercontent.com/Vanisha-vc5/hotel-offer-orchestrator/main/deploy/setup-vm.sh -o setup-vm.sh
+REPO_URL=https://github.com/Vanisha-vc5/hotel-offer-orchestrator.git \
 PUBLIC_DOMAIN=hotels.example.com \
 bash setup-vm.sh
 ```

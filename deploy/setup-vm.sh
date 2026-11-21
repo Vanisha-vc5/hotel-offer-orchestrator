@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # First-time (and re-runnable) setup of hotel-offer-orchestrator on Ubuntu 24.04.
 #
-#   curl -fsSL https://raw.githubusercontent.com/<owner>/hotel-offer-orchestrator/main/deploy/setup-vm.sh -o setup-vm.sh
-#   REPO_URL=https://github.com/<owner>/hotel-offer-orchestrator.git PUBLIC_DOMAIN=hotels.example.com bash setup-vm.sh
+#   curl -fsSL https://raw.githubusercontent.com/Vanisha-vc5/hotel-offer-orchestrator/main/deploy/setup-vm.sh -o setup-vm.sh
+#   REPO_URL=https://github.com/Vanisha-vc5/hotel-offer-orchestrator.git PUBLIC_DOMAIN=hotels.example.com bash setup-vm.sh
 #
 # Idempotent: every step checks before it acts, so running it again is safe.
 # PUBLIC_DOMAIN is optional; without it the script uses <public-ip>.sslip.io.

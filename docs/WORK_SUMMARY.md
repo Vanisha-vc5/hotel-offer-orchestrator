@@ -94,7 +94,7 @@ fresh clone following the README                 → working (after the npm ci f
 ## 7. Still to do
 
 - [ ] Push to GitHub and check the first CI and E2E runs. They've never run on GitHub.
-- [ ] Replace the `OWNER` placeholders in the README and CHANGELOG.
+- [x] `OWNER` placeholders replaced with `Vanisha-vc5`.
 - [ ] Deploy to a VM (`docs/DEPLOYMENT.md`) and add the live URL to the README.
 - [ ] Add the two screenshots (`docs/images/console.png`, `docs/images/temporal-schedule.png`).
 - [ ] Optionally set `LLM_PROVIDER` to try the AI parser and the duplicate judge. Everything works without it.

@@ -9,40 +9,40 @@
 
 ## Checks
 
-| # | Check | Result | Duration | Details |
-| -: | ----- | ------ | -------: | ------- |
-| 1 | Clean slate: docker compose down -v | ✅ pass | 4.5 s | volumes removed |
-| 2 | docker compose up --build --wait (all services healthy) | ✅ pass | 151.0 s | api=healthy, postgresql=healthy, redis=healthy, temporal=healthy, temporal-ui=healthy, worker=healthy |
-| 3 | Lint (ESLint) | ✅ pass | 3.6 s | passed |
-| 4 | Typecheck (tsc strict) | ✅ pass | 24.1 s | passed |
-| 5 | Unit tests | ✅ pass | 4.6 s | Tests 95 passed (95) |
-| 6 | Workflow tests (Temporal) | ✅ pass | 44.9 s | Tests 17 passed (17) |
-| 7 | Integration tests (supertest + real Redis) | ✅ pass | 15.8 s | Tests 115 passed (115) |
-| 8 | Postman collection (newman) | ✅ pass | 36.1 s | 61 requests, 148 assertions, 0 failed |
-| 9 | Chaos scenarios (down, both down, flaky, slow, circuit) | ✅ pass | 20.0 s | Supplier B down → partial + degraded: 2045 ms; Both suppliers down → 503: 2305 ms; Supplier B flaky → retries recover: 2168 ms; Supplier B slow → timeouts → partial: 11884 ms; Circuit breaker → fast partial: 1371 ms |
-| 10 | Benchmark N=50 (coalescing on vs off) | ✅ pass | 10.2 s | coalescing=on N= 50 p50=779ms p95=1138ms p99=1140ms runs=3 calls A/B=3/3 errors=0 \| coalescing=off N= 50 p50=2898ms p95=6219ms p99=6346ms runs=50 calls A/B=50/50 errors=0 |
+|   # | Check                                                   | Result  | Duration | Details                                                                                                                                                                                                                 |
+| --: | ------------------------------------------------------- | ------- | -------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|   1 | Clean slate: docker compose down -v                     | ✅ pass |    4.5 s | volumes removed                                                                                                                                                                                                         |
+|   2 | docker compose up --build --wait (all services healthy) | ✅ pass |  151.0 s | api=healthy, postgresql=healthy, redis=healthy, temporal=healthy, temporal-ui=healthy, worker=healthy                                                                                                                   |
+|   3 | Lint (ESLint)                                           | ✅ pass |    3.6 s | passed                                                                                                                                                                                                                  |
+|   4 | Typecheck (tsc strict)                                  | ✅ pass |   24.1 s | passed                                                                                                                                                                                                                  |
+|   5 | Unit tests                                              | ✅ pass |    4.6 s | Tests 95 passed (95)                                                                                                                                                                                                    |
+|   6 | Workflow tests (Temporal)                               | ✅ pass |   44.9 s | Tests 17 passed (17)                                                                                                                                                                                                    |
+|   7 | Integration tests (supertest + real Redis)              | ✅ pass |   15.8 s | Tests 115 passed (115)                                                                                                                                                                                                  |
+|   8 | Postman collection (newman)                             | ✅ pass |   36.1 s | 61 requests, 148 assertions, 0 failed                                                                                                                                                                                   |
+|   9 | Chaos scenarios (down, both down, flaky, slow, circuit) | ✅ pass |   20.0 s | Supplier B down → partial + degraded: 2045 ms; Both suppliers down → 503: 2305 ms; Supplier B flaky → retries recover: 2168 ms; Supplier B slow → timeouts → partial: 11884 ms; Circuit breaker → fast partial: 1371 ms |
+|  10 | Benchmark N=50 (coalescing on vs off)                   | ✅ pass |   10.2 s | coalescing=on N= 50 p50=779ms p95=1138ms p99=1140ms runs=3 calls A/B=3/3 errors=0 \| coalescing=off N= 50 p50=2898ms p95=6219ms p99=6346ms runs=50 calls A/B=50/50 errors=0                                             |
 
 ## Newman (Postman collection, all folders)
 
-| Item | Executed | Failed |
-| ---- | -------: | -----: |
-| iterations | 1 | 0 |
-| requests | 61 | 0 |
-| testScripts | 57 | 0 |
-| prerequestScripts | 4 | 0 |
-| assertions | 148 | 0 |
+| Item              | Executed | Failed |
+| ----------------- | -------: | -----: |
+| iterations        |        1 |      0 |
+| requests          |       61 |      0 |
+| testScripts       |       57 |      0 |
+| prerequestScripts |        4 |      0 |
+| assertions        |      148 |      0 |
 
 Total run duration: 31.3 s
 
 ## Chaos scenarios
 
-| Scenario | Result | Duration | Observed |
-| -------- | ------ | -------: | -------- |
-| Supplier B down → partial + degraded | ✅ | 2045 ms | 200 partial, 6 hotels in 1987 ms; health degraded |
-| Both suppliers down → 503 | ✅ | 2305 ms | 503 SUPPLIERS_UNAVAILABLE in 2246 ms |
-| Supplier B flaky → retries recover | ✅ | 2168 ms | 200 complete (2 failures retried) in 2115 ms |
-| Supplier B slow → timeouts → partial | ✅ | 11884 ms | 200 partial after per-attempt timeouts in 11831 ms |
-| Circuit breaker → fast partial | ✅ | 1371 ms | circuit B open; /api/hotels answered in 373 ms |
+| Scenario                             | Result | Duration | Observed                                           |
+| ------------------------------------ | ------ | -------: | -------------------------------------------------- |
+| Supplier B down → partial + degraded | ✅     |  2045 ms | 200 partial, 6 hotels in 1987 ms; health degraded  |
+| Both suppliers down → 503            | ✅     |  2305 ms | 503 SUPPLIERS_UNAVAILABLE in 2246 ms               |
+| Supplier B flaky → retries recover   | ✅     |  2168 ms | 200 complete (2 failures retried) in 2115 ms       |
+| Supplier B slow → timeouts → partial | ✅     | 11884 ms | 200 partial after per-attempt timeouts in 11831 ms |
+| Circuit breaker → fast partial       | ✅     |  1371 ms | circuit B open; /api/hotels answered in 373 ms     |
 
 ## Benchmark (N=50, coalescing on vs off)
 

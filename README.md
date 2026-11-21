@@ -1,11 +1,7 @@
 # Hotel Offer Orchestrator
 
-> **TODO before publishing:** replace the `OWNER` placeholder with your GitHub user or organisation in
-> (1) the CI and E2E badge URLs just below and (2) the `git clone` URLs under
-> [Deployment → Any Linux VM](#a-any-linux-vm-ec2-digitalocean--with-docker-compose).
-
-[![CI](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/ci.yml)
-[![E2E](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/e2e.yml/badge.svg)](https://github.com/OWNER/hotel-offer-orchestrator/actions/workflows/e2e.yml)
+[![CI](https://github.com/Vanisha-vc5/hotel-offer-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanisha-vc5/hotel-offer-orchestrator/actions/workflows/ci.yml)
+[![E2E](https://github.com/Vanisha-vc5/hotel-offer-orchestrator/actions/workflows/e2e.yml/badge.svg)](https://github.com/Vanisha-vc5/hotel-offer-orchestrator/actions/workflows/e2e.yml)
 ![Node](https://img.shields.io/badge/node-24%20LTS-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Temporal](https://img.shields.io/badge/Temporal-1.26-000000)
@@ -858,7 +854,7 @@ npm run test:postman
 > backups and troubleshooting, is **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 >
 > ```bash
-> REPO_URL=https://github.com/OWNER/hotel-offer-orchestrator.git PUBLIC_DOMAIN=hotels.example.com bash deploy/setup-vm.sh
+> REPO_URL=https://github.com/Vanisha-vc5/hotel-offer-orchestrator.git PUBLIC_DOMAIN=hotels.example.com bash deploy/setup-vm.sh
 > ```
 >
 > The manual steps below still work if you prefer plain Compose on port 3000.
@@ -871,7 +867,7 @@ curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $USER && newgrp docker
 
 # 2. Get the code and configure
-git clone https://github.com/OWNER/hotel-offer-orchestrator.git && cd hotel-offer-orchestrator
+git clone https://github.com/Vanisha-vc5/hotel-offer-orchestrator.git && cd hotel-offer-orchestrator
 cp .env.example .env
 #   Recommended production edits in .env:
 #   ADMIN_TOKEN=<long random string>        # protect /admin/*
