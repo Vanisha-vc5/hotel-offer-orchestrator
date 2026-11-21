@@ -79,7 +79,11 @@ export async function probeNow(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const stats = await getMonitorStats(client);
-    const done = SUPPLIERS.every((s) => stats[s].probeCount > before[s].probeCount);
+    // Wait for a probe that started after the signal AND whose result is already in Redis,
+    // so callers reading /admin/circuits right after see it.
+    const done = SUPPLIERS.every(
+      (s) => (stats[s].onDemandProbes ?? 0) > (before[s].onDemandProbes ?? 0),
+    );
     if (done || Date.now() > deadline) return stats;
     await sleep(100);
   }

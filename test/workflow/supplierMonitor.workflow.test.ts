@@ -125,6 +125,20 @@ describe('supplierMonitorWorkflow (time-skipping)', () => {
     });
   });
 
+  it('counts a probeNow probe only once its result is recorded (probe-now waits on this)', async () => {
+    await withMonitor([false, false], {}, async (handle, rec) => {
+      // The first probe runs on start, not because of a signal: it is not on-demand.
+      const first = await waitFor(handle, (s) => s.probeCount === 1);
+      expect(first.onDemandProbes).toBe(0);
+      await handle.signal(probeNowSignal);
+      const after = await waitFor(handle, (s) => (s.onDemandProbes ?? 0) === 1);
+      // By the time the counter moves, the circuit has already been handed to recordProbe.
+      expect(rec.recorded).toHaveLength(2);
+      expect(after.probeCount).toBe(2);
+      expect(after.circuit.consecutiveFailures).toBe(2);
+    });
+  });
+
   it('after the cooldown, a half-open probe that succeeds closes the circuit', async () => {
     await withMonitor([false, false, false, true], {}, async (handle) => {
       await waitFor(handle, (s) => s.probeCount === 1);

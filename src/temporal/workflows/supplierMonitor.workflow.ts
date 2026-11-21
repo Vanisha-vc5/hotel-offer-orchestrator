@@ -47,6 +47,8 @@ export async function supplierMonitorWorkflow(input: MonitorInput): Promise<void
   let iterations = 0;
   let pendingProbes = 0;
   let resetPending = false;
+  let onDemandProbes = input.carry?.onDemandProbes ?? 0;
+  let onDemand = false; // the probe about to run was triggered by probeNow
 
   setHandler(probeNowSignal, () => {
     pendingProbes++;
@@ -63,6 +65,7 @@ export async function supplierMonitorWorkflow(input: MonitorInput): Promise<void
     probeCount,
     iterations,
     generation,
+    onDemandProbes,
   }));
 
   for (;;) {
@@ -75,6 +78,8 @@ export async function supplierMonitorWorkflow(input: MonitorInput): Promise<void
     probeCount++;
     iterations++;
     await recordProbe(supplier, sample, circuit);
+    if (onDemand) onDemandProbes++; // only once the circuit is in Redis
+    onDemand = false;
     if (before !== circuit.state) {
       log.warn('circuit state changed', { supplier, from: before, to: circuit.state, ...result });
     }
@@ -83,7 +88,7 @@ export async function supplierMonitorWorkflow(input: MonitorInput): Promise<void
       log.info('monitor continuing as new', { supplier, probeCount, generation: generation + 1 });
       await continueAsNew<typeof supplierMonitorWorkflow>({
         ...input,
-        carry: { circuit, recent, probeCount, generation: generation + 1 },
+        carry: { circuit, recent, probeCount, generation: generation + 1, onDemandProbes },
       });
     }
 
@@ -96,7 +101,10 @@ export async function supplierMonitorWorkflow(input: MonitorInput): Promise<void
         log.info('circuit reset', { supplier });
         continue; // keep waiting; a reset is not a probe
       }
-      if (pendingProbes > 0) pendingProbes--;
+      if (pendingProbes > 0) {
+        pendingProbes--;
+        onDemand = true;
+      }
       break;
     }
   }

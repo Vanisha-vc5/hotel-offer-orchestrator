@@ -229,7 +229,7 @@ The tests need Node 24 and a running Redis (`docker compose up -d redis`).
 
 ```bash
 npm ci
-npm test               # 309 tests: unit, Temporal workflow and integration (real Redis)
+npm test               # 310 tests: unit, Temporal workflow and integration (real Redis)
 npm run lint
 npm run typecheck
 npm run test:postman   # the Postman collection, against the running stack

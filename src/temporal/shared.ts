@@ -120,6 +120,7 @@ export interface MonitorCarry {
   recent: MonitorSample[];
   probeCount: number;
   generation: number;
+  onDemandProbes?: number;
 }
 
 export interface MonitorInput {
@@ -141,6 +142,11 @@ export interface MonitorStats {
   iterations: number;
   /** Number of continue-as-new hops so far. */
   generation: number;
+  /**
+   * Probes run because of a probeNow signal, counted only after the result is saved to
+   * Redis. A probe already in flight when the signal arrived is not counted.
+   */
+  onDemandProbes?: number;
 }
 
 export const probeNowSignal = defineSignal('probeNow');
