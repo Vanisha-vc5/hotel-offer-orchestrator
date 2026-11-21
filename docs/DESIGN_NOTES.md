@@ -156,7 +156,7 @@ name**, as required. `duplicateReviewWorkflow` only **reports** likely duplicate
 - **Mutual best match:** a pair is kept only when each listing is the other's best match, so "The Leela Palace"
   isn't also paired with "Pearl Palace" at 0.79.
 - **≥ 0.92:** reported as `likely_same`, decided by `similarity`.
-- **0.75–0.92:** an **LLM judge activity** decides `likely_same`, `different` or `uncertain`, with a one-line
+- **0.75–0.92:** an **LLM judge activity** (Experimental: tested with mocks; the deterministic `uncertain` fallback is the default) decides `likely_same`, `different` or `uncertain`, with a one-line
   reason. It's an activity, never workflow code, because model output is non-deterministic. With no LLM
   configured, the pair is reported `uncertain`, decided by `similarity`.
 - **Below 0.75:** ignored.

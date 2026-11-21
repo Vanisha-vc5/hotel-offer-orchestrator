@@ -235,7 +235,7 @@ describe('HTTP API', () => {
       const res = await api.get('/health').expect(200);
       expect(res.body).toMatchObject({
         status: 'up',
-        version: '2.0.0',
+        version: '2.1.0',
         dependencies: {
           supplierA: { status: 'up' },
           supplierB: { status: 'up' },

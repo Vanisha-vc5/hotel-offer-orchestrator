@@ -36,7 +36,7 @@ curl -i "localhost:3000/api/hotels?city=delhi"                # the graded respo
 More: [demo guide](docs/DEMO_GUIDE.md) · [design notes](docs/DESIGN_NOTES.md) ·
 [configuration reference](docs/CONFIGURATION.md) · [deployment guide](docs/DEPLOYMENT.md) ·
 [benchmarks](docs/benchmarks.md) · [verification report](docs/verification-report.md) ·
-[changelog](CHANGELOG.md) · [original spec](docs/SPEC.md) · [build report](docs/BUILD_REPORT.md)
+[changelog](CHANGELOG.md) · [assignment](docs/ASSIGNMENT.md)
 
 ---
 
@@ -90,8 +90,8 @@ the [Postman collection](postman/HotelOfferOrchestrator.postman_collection.json)
 - Supplier monitor workflows with a circuit breaker ([§14](#14-circuit-breaker)).
 - A Temporal Schedule that warms the cache every 2 minutes.
 - `GET /api/hotels/insights`, which explains each decision.
-- Report-only near-duplicate detection.
-- `POST /api/hotels/ask` natural-language search: a rules parser, with an LLM only if one is configured.
+- Report-only near-duplicate detection. Its LLM duplicate judge is **Experimental** (LLM path tested with mocks; deterministic fallback is the default).
+- `POST /api/hotels/ask` natural-language search: **Experimental** (LLM path tested with mocks; deterministic fallback is the default).
 - An ops console with chaos controls.
 - One-command verification, and HTTPS deployment with Caddy.
 
@@ -450,15 +450,15 @@ is enabled.
 
 ### Other endpoints
 
-| Endpoint                                         | Purpose                                                                                                            |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `GET /supplierA/hotels`, `GET /supplierB/hotels` | mock suppliers (`?city=` optional)                                                                                 |
-| `GET /health`                                    | both suppliers, Redis and Temporal, probed in parallel: `200 up`, `200 degraded` (one supplier down) or `503 down` |
-| `GET /health/live`, `GET /health/ready`          | liveness (always 200), and readiness (Redis and Temporal; `503` while draining)                                    |
-| `GET /api/hotels/insights?city=`                 | optional: the decision log (both offers, winner, reason, savings) and possible duplicates                          |
-| `POST /api/hotels/ask` `{"query": "…"}`          | optional: natural-language search, e.g. "hotels in delhi under 6k"                                                 |
-| `/admin/*`                                       | chaos, cache clearing, circuits, warm-up and metrics; needs `x-admin-token` when `ADMIN_TOKEN` is set              |
-| `GET /console`, `GET /docs`                      | ops console and Swagger UI                                                                                         |
+| Endpoint                                         | Purpose                                                                                                                                                  |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /supplierA/hotels`, `GET /supplierB/hotels` | mock suppliers (`?city=` optional)                                                                                                                       |
+| `GET /health`                                    | both suppliers, Redis and Temporal, probed in parallel: `200 up`, `200 degraded` (one supplier down) or `503 down`                                       |
+| `GET /health/live`, `GET /health/ready`          | liveness (always 200), and readiness (Redis and Temporal; `503` while draining)                                                                          |
+| `GET /api/hotels/insights?city=`                 | optional: the decision log (both offers, winner, reason, savings) and possible duplicates                                                                |
+| `POST /api/hotels/ask` `{"query": "…"}`          | optional, **Experimental** (LLM path tested with mocks; deterministic fallback is the default): natural-language search, e.g. "hotels in delhi under 6k" |
+| `/admin/*`                                       | chaos, cache clearing, circuits, warm-up and metrics; needs `x-admin-token` when `ADMIN_TOKEN` is set                                                    |
+| `GET /console`, `GET /docs`                      | ops console and Swagger UI                                                                                                                               |
 
 ### Status codes
 

@@ -53,7 +53,8 @@ export function createApp(deps: AppDeps): Express {
   const overridesAllowed = cfg.FEATURE_BENCHMARK && (!production || cfg.ALLOW_COALESCING_OVERRIDE);
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', cfg.TRUST_PROXY);
+  // Behind exactly one reverse proxy (Caddy/nginx) in production: trust one hop for client IPs.
+  app.set('trust proxy', production || cfg.TRUST_PROXY ? 1 : false);
   app.set('query parser', 'simple'); // no nested objects/arrays from query strings
 
   app.use(
