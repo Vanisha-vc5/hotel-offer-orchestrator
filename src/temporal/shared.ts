@@ -97,7 +97,7 @@ export function formatSuppliersStatus(s: SuppliersStatus): string {
 }
 
 // ---------------------------------------------------------------------------
-// Enhancement 2: supplier monitor workflows
+// Supplier monitor: supplier monitor workflows
 // ---------------------------------------------------------------------------
 
 export const MONITOR_WORKFLOW_PREFIX = 'supplier-monitor-';
@@ -154,7 +154,7 @@ export const resetCircuitSignal = defineSignal('resetCircuit');
 export const getStatsQuery = defineQuery<MonitorStats>('getStats');
 
 // ---------------------------------------------------------------------------
-// Enhancement 3: scheduled cache warm-up
+// Cache warm-up: scheduled cache warm-up
 // ---------------------------------------------------------------------------
 
 export const WARMUP_SCHEDULE_ID = 'cache-warmup';

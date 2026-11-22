@@ -5,7 +5,7 @@ import type { TestApp } from '../helpers/app';
 
 const TOKEN = 'bench-token-0123456789';
 
-describe('Enhancement 1: supplier call metrics + coalescing override (FEATURE_BENCHMARK=true)', () => {
+describe('Coalescing benchmark: supplier call metrics + coalescing override (FEATURE_BENCHMARK=true)', () => {
   let t: TestApp;
   let api: ReturnType<typeof request>;
 
@@ -78,7 +78,7 @@ describe('Enhancement 1: supplier call metrics + coalescing override (FEATURE_BE
   });
 });
 
-describe('Enhancement 1 without ADMIN_TOKEN configured', () => {
+describe('Coalescing benchmark without ADMIN_TOKEN configured', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ RATE_LIMIT_MAX: '2' });
@@ -98,7 +98,7 @@ describe('Enhancement 1 without ADMIN_TOKEN configured', () => {
   });
 });
 
-describe('Enhancement 1 under NODE_ENV=production', () => {
+describe('Coalescing benchmark under NODE_ENV=production', () => {
   it('disables the override entirely, even with a valid token', async () => {
     const t = await startTestApp({
       NODE_ENV: 'production',
@@ -150,7 +150,7 @@ describe('Enhancement 1 under NODE_ENV=production', () => {
   });
 });
 
-describe('Enhancement 1 with FEATURE_BENCHMARK=false (v1 behaviour)', () => {
+describe('Coalescing benchmark with FEATURE_BENCHMARK=false (v1 behaviour)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ FEATURE_BENCHMARK: 'false', RATE_LIMIT_MAX: '2', ADMIN_TOKEN: TOKEN });

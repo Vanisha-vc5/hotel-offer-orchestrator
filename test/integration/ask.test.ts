@@ -7,7 +7,7 @@ import type { TestApp } from '../helpers/app';
 const tag = (): string =>
   Array.from({ length: 8 }, () => 'abcdefghij'[Math.floor(Math.random() * 10)]).join('');
 
-describe('Enhancement 4: POST /api/hotels/ask (LLM_PROVIDER=none → rules parser)', () => {
+describe('Natural-language search: POST /api/hotels/ask (LLM_PROVIDER=none → rules parser)', () => {
   let t: TestApp;
   let api: ReturnType<typeof request>;
 
@@ -77,7 +77,7 @@ describe('Enhancement 4: POST /api/hotels/ask (LLM_PROVIDER=none → rules parse
   });
 });
 
-describe('Enhancement 4 with FEATURE_ASK=false (v1 behaviour)', () => {
+describe('Natural-language search with FEATURE_ASK=false (v1 behaviour)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ FEATURE_ASK: 'false' });

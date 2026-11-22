@@ -9,7 +9,7 @@ export interface DependencyHealth {
   status: DependencyStatus;
   latencyMs: number;
   error?: string;
-  /** Enhancement 2 (FEATURE_MONITOR): background monitor view of this supplier. */
+  /** Supplier monitor (FEATURE_MONITOR): background monitor view of this supplier. */
   monitor?: MonitorSummary;
 }
 

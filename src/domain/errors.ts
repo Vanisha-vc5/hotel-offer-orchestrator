@@ -87,6 +87,6 @@ export const FailureTypes = {
   SupplierClientError: 'SupplierClientError',
   SupplierInvalidPayload: 'SupplierInvalidPayload',
   CacheUnavailable: 'CacheUnavailable',
-  /** Enhancement 2: the supplier's circuit is open; fail fast without an HTTP call. */
+  /** Supplier monitor: the supplier's circuit is open; fail fast without an HTTP call. */
   CircuitOpen: 'CircuitOpen',
 } as const;

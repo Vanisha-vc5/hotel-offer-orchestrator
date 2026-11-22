@@ -1,8 +1,8 @@
 flowchart LR
-    Client --> API[API server]
-    API -- start workflow --> Temporal[(Temporal)]
-    Temporal --> Worker
+    Client --> API[Express API]
+    API -- start or join workflow --> Temporal[(Temporal server)]
+    Temporal --> Worker[Temporal worker]
     Worker -- in parallel --> A[Supplier A]
     Worker -- in parallel --> B[Supplier B]
-    Worker -- save results --> Redis[(Redis)]
-    API -- price filter --> Redis
+    Worker -- best offers, atomic write --> Redis[(Redis)]
+    API -- price filter, Lua --> Redis

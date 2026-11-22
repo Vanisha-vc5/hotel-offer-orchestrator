@@ -34,7 +34,7 @@ function buildDeps(cfg: Config): AppDeps {
     return runHotelOffersWorkflow(client, input, cfg);
   }, repository);
 
-  // Enhancement 2: monitor + circuit breaker (Redis view + Temporal control plane).
+  // Supplier monitor: monitor + circuit breaker (Redis view + Temporal control plane).
   const monitorStore = cfg.FEATURE_MONITOR ? new MonitorStore(redis) : undefined;
 
   const healthService = new HealthService(

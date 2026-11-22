@@ -11,7 +11,7 @@ const OPEN = {
   lastCheckedAt: Date.now(),
 };
 
-describe('Enhancement 2: circuit breaker surface (FEATURE_MONITOR=true)', () => {
+describe('Supplier monitor: circuit breaker surface (FEATURE_MONITOR=true)', () => {
   let t: TestApp;
   let api: ReturnType<typeof request>;
 
@@ -84,7 +84,7 @@ describe('Enhancement 2: circuit breaker surface (FEATURE_MONITOR=true)', () => 
   });
 });
 
-describe('Enhancement 2 with FEATURE_MONITOR=false (v1 behaviour)', () => {
+describe('Supplier monitor with FEATURE_MONITOR=false (v1 behaviour)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ FEATURE_MONITOR: 'false' });

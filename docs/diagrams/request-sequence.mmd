@@ -1,15 +1,27 @@
 sequenceDiagram
     participant C as Client
     participant API
-    participant W as Worker
+    participant T as Temporal + Worker
     participant S as Suppliers
     participant R as Redis
 
-    C->>API: GET /api/hotels?city=delhi
-    API->>W: start the workflow via Temporal (or join a running one)
-    W->>S: fetch from A and B at the same time
-    S-->>W: offers
-    W->>W: remove duplicates, keep the best offer
-    W->>R: save
-    W-->>API: result
+    C->>API: GET /api/hotels?city=delhi[&minPrice&maxPrice]
+    alt price filter given and city already cached
+        API->>R: Lua price filter
+        R-->>API: matching offers (X-Cache: HIT)
+    else no filter, or city not cached
+        API->>T: start or join workflow hotel-offers-delhi
+        par in parallel
+            T->>S: fetch Supplier A
+            T->>S: fetch Supplier B
+        end
+        S-->>T: offers
+        T->>T: dedupe, pick best offer per hotel
+        T->>R: atomic write (Lua)
+        T-->>API: result
+        opt price filter given
+            API->>R: Lua price filter
+            R-->>API: matching offers
+        end
+    end
     API-->>C: JSON array

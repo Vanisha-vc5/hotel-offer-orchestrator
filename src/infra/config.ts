@@ -65,7 +65,7 @@ const EnvSchema = z.object({
   SUPPLIER_B_URL: z.string().url().default('http://localhost:3000/supplierB/hotels'),
 
   // v2 feature flags (all on by default; off = exact v1 behaviour)
-  /** Enhancement 1: supplier call counters, X-Coalescing override, benchmark rate-limit bypass. */
+  /** Coalescing benchmark: supplier call counters, X-Coalescing override, benchmark rate-limit bypass. */
   FEATURE_BENCHMARK: bool.default(true),
   /** Request coalescing (one workflow run per city). false only for comparisons. */
   COALESCING_ENABLED: bool.default(true),
@@ -80,7 +80,7 @@ const EnvSchema = z.object({
    */
   ALLOW_OPEN_ADMIN: bool.default(false),
 
-  /** Enhancement 2: supplier monitor workflows + circuit breaker. */
+  /** Supplier monitor: supplier monitor workflows + circuit breaker. */
   FEATURE_MONITOR: bool.default(true),
   MONITOR_INTERVAL: duration.default('15s'),
   MONITOR_PROBE_TIMEOUT_MS: ms.default(2_000),
@@ -88,7 +88,7 @@ const EnvSchema = z.object({
   CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(3),
   CIRCUIT_COOLDOWN: duration.default('30s'),
 
-  /** Enhancement 3: Temporal Schedule that pre-warms the cache. */
+  /** Cache warm-up: Temporal Schedule that pre-warms the cache. */
   FEATURE_WARMUP: bool.default(true),
   WARMUP_CITIES: z
     .string()
@@ -111,7 +111,7 @@ const EnvSchema = z.object({
     ),
   WARMUP_INTERVAL: duration.default('2m'),
 
-  /** Enhancement 4: POST /api/hotels/ask natural-language search. */
+  /** Natural-language search: POST /api/hotels/ask natural-language search. */
   FEATURE_ASK: bool.default(true),
   LLM_PROVIDER: z.enum(['none', 'anthropic', 'openai-compatible']).default('none'),
   /** anthropic default: claude-haiku-4-5. Required for openai-compatible. */
@@ -124,17 +124,17 @@ const EnvSchema = z.object({
   /** Cost guard: max LLM calls per UTC day across ask + duplicate judge (Redis counter). */
   LLM_DAILY_CALL_LIMIT: z.coerce.number().int().nonnegative().default(200),
 
-  /** Enhancement 6: report-only near-duplicate detection in insights. */
+  /** Duplicate detection: report-only near-duplicate detection in insights. */
   FEATURE_DUPLICATES: bool.default(true),
 
-  /** Enhancement 7: ops console at /console. */
+  /** Ops console: ops console at /console. */
   FEATURE_CONSOLE: bool.default(true),
   /** Base URL of the Temporal UI, used for workflow links in the console. */
   TEMPORAL_UI_URL: z.string().url().default('http://localhost:8080'),
 
   // Chaos / admin
   ENABLE_CHAOS: bool.default(true),
-  /** Enhancement 5: production refuses to start without a strong ADMIN_TOKEN. */
+  /** Production deployment: production refuses to start without a strong ADMIN_TOKEN. */
   REQUIRE_ADMIN_TOKEN: bool.default(false),
   ADMIN_TOKEN: z
     .string()

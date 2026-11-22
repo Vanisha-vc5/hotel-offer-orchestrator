@@ -156,7 +156,7 @@ export class HotelRepository {
     };
   }
 
-  /** Enhancement 6: cached duplicate review for the city's current data, or null. */
+  /** Duplicate detection: cached duplicate review for the city's current data, or null. */
   async getPossibleDuplicates(city: string): Promise<PossibleDuplicate[] | null> {
     const raw = await guard('getPossibleDuplicates', () =>
       this.redis.hget(cityKeys(city).meta, 'possibleDuplicates'),

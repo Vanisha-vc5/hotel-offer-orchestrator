@@ -5,7 +5,7 @@ import type { HotelRepository } from '../../infra/hotelRepository';
 export type DuplicateReviewRunner = (city: string) => Promise<PossibleDuplicate[]>;
 
 /**
- * Enhancement 6 (FEATURE_DUPLICATES): possible near-duplicates for a city's
+ * Duplicate detection (FEATURE_DUPLICATES): possible near-duplicates for a city's
  * current cached data. Served from Redis meta when present, otherwise reviewed
  * on demand. The review is cleared automatically with the meta on refresh.
  */

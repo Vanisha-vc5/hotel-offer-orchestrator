@@ -7,7 +7,7 @@ export interface MonitorControl {
 }
 
 /**
- * Enhancement 2 admin routes (FEATURE_MONITOR):
+ * Supplier monitor admin routes (FEATURE_MONITOR):
  *   GET  /admin/circuits          current circuit state per supplier (Redis)
  *   POST /admin/monitor/probe-now probe both suppliers now and wait for the result
  */

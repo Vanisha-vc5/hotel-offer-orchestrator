@@ -35,11 +35,6 @@ contract guard still passes.
   `docker-compose.prod.yml` still pins both to `false`.
 - `trust proxy` is `1` (one hop) under `NODE_ENV=production`, and `TRUST_PROXY=true` also means one hop.
 
-### Removed
-
-- Internal build notes (`docs/SPEC.md`, `docs/WORK_SUMMARY.md`, `docs/BUILD_REPORT.md`, `ENHANCEMENTS.md`). The
-  assignment text lives in `docs/ASSIGNMENT.md`.
-
 ### Added
 
 - The `X-Coalesced` response header on workflow-backed responses (additive, documented in OpenAPI).

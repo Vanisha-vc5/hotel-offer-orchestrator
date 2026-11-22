@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTestApp } from '../helpers/app';
 import type { TestApp } from '../helpers/app';
 
-describe('Enhancement 7: ops console (FEATURE_CONSOLE=true)', () => {
+describe('Ops console (FEATURE_CONSOLE=true)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ TEMPORAL_UI_URL: 'http://temporal.example:8080/' });
@@ -36,7 +36,7 @@ describe('Enhancement 7: ops console (FEATURE_CONSOLE=true)', () => {
   });
 });
 
-describe('Enhancement 7 with FEATURE_CONSOLE=false (v1 behaviour)', () => {
+describe('Ops console with FEATURE_CONSOLE=false (v1 behaviour)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ FEATURE_CONSOLE: 'false' });

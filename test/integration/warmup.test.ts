@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTestApp } from '../helpers/app';
 import type { TestApp } from '../helpers/app';
 
-describe('Enhancement 3: warm-up admin (FEATURE_WARMUP=true)', () => {
+describe('Cache warm-up: admin routes (FEATURE_WARMUP=true)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ WARMUP_CITIES: 'delhi,goa' });
@@ -34,7 +34,7 @@ describe('Enhancement 3: warm-up admin (FEATURE_WARMUP=true)', () => {
   });
 });
 
-describe('Enhancement 3 with FEATURE_WARMUP=false (v1 behaviour)', () => {
+describe('Cache warm-up with FEATURE_WARMUP=false (v1 behaviour)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ FEATURE_WARMUP: 'false' });

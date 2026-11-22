@@ -16,7 +16,7 @@ export interface ActivityDeps {
   cfg: Config;
   /** FEATURE_MONITOR: circuit state + probe history. */
   monitorStore?: MonitorStore;
-  /** Enhancement 6: optional LLM judge for duplicate review. */
+  /** Duplicate detection: optional LLM judge for duplicate review. */
   toolCaller?: ToolCaller;
 }
 

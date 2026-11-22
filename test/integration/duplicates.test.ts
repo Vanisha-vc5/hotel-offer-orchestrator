@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { startTestApp } from '../helpers/app';
 import type { TestApp } from '../helpers/app';
 
-describe('Enhancement 6: possibleDuplicates in insights (FEATURE_DUPLICATES=true)', () => {
+describe('Duplicate detection: possibleDuplicates in insights (FEATURE_DUPLICATES=true)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp();
@@ -60,7 +60,7 @@ describe('Enhancement 6: possibleDuplicates in insights (FEATURE_DUPLICATES=true
   });
 });
 
-describe('Enhancement 6 with FEATURE_DUPLICATES=false (v1 behaviour)', () => {
+describe('Duplicate detection with FEATURE_DUPLICATES=false (v1 behaviour)', () => {
   let t: TestApp;
   beforeAll(async () => {
     t = await startTestApp({ FEATURE_DUPLICATES: 'false' });

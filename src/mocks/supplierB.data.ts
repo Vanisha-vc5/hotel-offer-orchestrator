@@ -26,7 +26,7 @@ export const supplierBHotels: SupplierHotel[] = [
   { hotelId: 'b21', name: 'Taj West End', price: 12900, city: 'bangalore', commissionPct: 15 },
   { hotelId: 'b22', name: 'Fab Hotel', price: 2100, city: 'bangalore', commissionPct: 6 },
 
-  // jaipur (Enhancement 6) — "Radison Blu" (typo), "Leela Palace" (stop-word), "Pearl Palace" are
+  // jaipur (Duplicate detection) — "Radison Blu" (typo), "Leela Palace" (stop-word), "Pearl Palace" are
   // near-duplicates of Supplier A; "Taj Jai Mahal Palace" looks similar but is a different hotel.
   { hotelId: 'b40', name: 'Radison Blu', price: 6900, city: 'jaipur', commissionPct: 13 },
   { hotelId: 'b41', name: 'Leela Palace', price: 15900, city: 'jaipur', commissionPct: 16 },

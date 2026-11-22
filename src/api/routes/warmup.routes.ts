@@ -7,7 +7,7 @@ export interface WarmupControl {
 }
 
 /**
- * Enhancement 3 admin routes (FEATURE_WARMUP):
+ * Cache warm-up admin routes (FEATURE_WARMUP):
  *   GET  /admin/warmup          schedule state, next run, last run with per-city results
  *   POST /admin/warmup/run-now  trigger the schedule now and wait (bounded) for the run
  */

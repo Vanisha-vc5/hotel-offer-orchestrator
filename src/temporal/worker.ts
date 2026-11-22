@@ -79,14 +79,14 @@ async function main(): Promise<void> {
 
   const health = startHealthServer(worker, cfg.WORKER_HEALTH_PORT);
 
-  // Enhancement 2: long-running supplier monitors (idempotent start at boot).
+  // Supplier monitor: long-running supplier monitors (idempotent start at boot).
   const client = new Client({ connection, namespace: cfg.TEMPORAL_NAMESPACE });
   const monitors = cfg.FEATURE_MONITOR ? ensureMonitors(client, cfg) : stopMonitors(client);
   monitors.catch((err: unknown) =>
     logger.error({ err: (err as Error).message }, 'could not start supplier monitors'),
   );
 
-  // Enhancement 3: cache warm-up Schedule (create or update; deleted when the flag is off).
+  // Cache warm-up: cache warm-up Schedule (create or update; deleted when the flag is off).
   const warmup = cfg.FEATURE_WARMUP
     ? ensureWarmupSchedule(client, cfg)
     : deleteWarmupSchedule(client);

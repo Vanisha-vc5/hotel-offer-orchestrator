@@ -22,7 +22,7 @@ const toPublicOffer = (o: HotelOffer): HotelOffer => ({
 });
 
 /**
- * Enhancement 4 (FEATURE_ASK): POST /api/hotels/ask — natural-language search.
+ * Natural-language search (FEATURE_ASK): POST /api/hotels/ask — natural-language search.
  * A new endpoint, so it may use an envelope; `results` keeps the 4-key offer shape.
  */
 export function askRouter(service: AskService): Router {

@@ -6,7 +6,7 @@ import type { Config } from '../../infra/config';
 export const CONSOLE_DIR = path.resolve(__dirname, '..', '..', 'console');
 
 /**
- * Enhancement 7 (FEATURE_CONSOLE): the ops console at /console. Plain static
+ * Ops console (FEATURE_CONSOLE): the ops console at /console. Plain static
  * files (no build step, no CDN), so helmet's strict default CSP
  * (`script-src 'self'`, no inline script) applies unchanged.
  */
