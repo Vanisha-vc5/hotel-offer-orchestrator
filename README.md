@@ -17,6 +17,32 @@ GET /api/hotels?city=delhi&minPrice=4000&maxPrice=6000
    {"name":"Radison","price":5900,"supplier":"Supplier A","commissionPct":13}]
 ```
 
+**At a glance:**
+
+- **One command** starts everything (`docker compose up`).
+- **16.7× fewer supplier calls** under 200 concurrent requests, through request coalescing.
+- **About 0.3 s responses** while a supplier is down, through a circuit breaker.
+- **310 automated tests** and **148 Postman assertions**.
+
+---
+
+## Assignment checklist
+
+| Requirement                                                       | How it's met                                                                                              |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Call Supplier A and B in parallel                                 | Two Temporal activities started together with `Promise.allSettled`, so one failure can't cancel the other |
+| Deduplicate by name, cheaper offer wins                           | A pure `selectBestOffers` function inside the workflow, with deterministic tie-breaks                     |
+| Keep hotels offered by only one supplier                          | Kept, and marked as `single_source` in `/api/hotels/insights`                                             |
+| Temporal orchestrates the comparison                              | `hotelOffersWorkflow`: fetch in parallel → select → save; every run is visible in the Temporal UI         |
+| Save the deduplicated list in Redis                               | One atomic Lua write per city (a sorted set by price, a hash of offers, metadata)                         |
+| Price filtering inside Redis                                      | `filterByPrice.lua`: `ZRANGEBYSCORE` plus reading the offers, in a single Redis call                      |
+| Exact response format                                             | A plain array with exactly `name, price, supplier, commissionPct`, frozen by a contract test              |
+| Mock suppliers with overlapping hotels                            | `GET /supplierA/hotels` and `GET /supplierB/hotels`, with 5 overlapping hotels in delhi                   |
+| Docker                                                            | A multi-stage Dockerfile and Compose with 6 services, all with healthchecks                               |
+| Postman: overlap city, no-results city, supplier down             | All three, plus filtering, validation and resilience: 61 requests, 148 assertions                         |
+| **Bonus:** `/health` reports both suppliers                       | Each supplier's live status and latency, plus uptime and circuit state from the monitor                   |
+| **Bonus:** logging and error handling in workflows and activities | Structured logs traced by request ID, typed retryable and non-retryable errors, partial results           |
+
 ---
 
 ## Highlights
@@ -30,12 +56,22 @@ also make parallel calls, but Temporal adds:
 - a full history of every request in the Temporal UI, including each failed attempt;
 - recovery if the worker crashes mid-request, without losing recorded progress.
 
+> **Example:** Supplier B answers the first try with an error. Temporal waits a moment and tries again, and the
+> second try works. You still get all 7 Delhi hotels, and the Temporal UI shows both attempts. If the worker
+> restarts after Supplier A has already answered, Temporal remembers A's result and only redoes the unfinished
+> work.
+
 ![Temporal UI showing a retried supplier call](docs/images/temporal-retries.png)
 
 ### 2. Request coalescing
 
 If 200 people ask for Delhi at the same moment, there's no need to call the suppliers 200 times. The workflow ID
 is `hotel-offers-<city>`, so concurrent requests for the same city join the run that is already in progress.
+
+> **Example:** Asha and Ravi search Delhi at the same moment. Asha's request starts the workflow
+> `hotel-offers-delhi`, and Ravi's request joins it instead of starting a second one. The suppliers are called
+> once, and both get the same answer. Ravi's response has `X-Coalesced: true` and the same `X-Workflow-Run-Id`
+> as Asha's. A search a few seconds later starts a fresh run, so nobody gets old data.
 
 **Benchmark, 200 concurrent requests (local laptop):**
 
@@ -66,6 +102,30 @@ Both reads and writes are Lua scripts, so each one is a single atomic step:
   data, and a partial result never replaces a complete one that is still fresh.
 - **Expiry:** complete results last 5 minutes and partial results 30 seconds. Empty cities are cached too, so
   they don't hit the suppliers every time.
+- **Warm-up:** a Temporal Schedule refreshes the popular cities every 2 minutes, so filtered requests are
+  usually answered straight from Redis. It joins any user request already running for the same city instead of
+  duplicating it.
+
+> **Example, filtering:** Redis holds Delhi's 7 hotels, sorted by price: Ibis 2900, Lemon Tree 3200,
+> Holtin 5340, Radison 5900, Hyatt Regency 8400, The Leela 9800, Taj Palace 11900.
+> `?city=delhi&minPrice=5000&maxPrice=9000` makes Redis return only Holtin, Radison and Hyatt Regency. Bounds
+> are inclusive, so `minPrice=5340&maxPrice=5900` still includes both Holtin and Radison.
+
+> **Example, older data can't win:** Request 1 starts at 10:00:00 but its supplier call is slow. Request 2
+> starts at 10:00:01, finishes first and saves its result. When Request 1 finally finishes, Redis rejects its
+> write as `stale`, so the newer data stays.
+
+> **Example, a partial result doesn't replace a complete one:** Redis holds a complete Delhi list from both
+> suppliers. Then Supplier B goes down, and a new search gets only Supplier A's hotels. That user still gets
+> A's hotels straight away, but Redis keeps the complete list until it expires. Filtered searches keep seeing
+> all 7 hotels instead of a reduced list.
+
+> **Example, expiry and empty cities:** Goa is saved at 10:00, so filtered Goa searches until 10:05 come from
+> Redis (`X-Cache: HIT`), and the first one after that runs the workflow again. A search for `atlantis` returns
+> `[]`, and that empty result is cached too, so the next `atlantis` search doesn't call the suppliers.
+
+> **Example, warm-up:** Delhi, Mumbai and Bangalore are refreshed every 2 minutes in the background. A user who
+> filters Mumbai at any time gets an answer from Redis without waiting for the suppliers.
 
 ![Price filtering served from Redis](docs/images/redis-filtering.png)
 
@@ -82,6 +142,19 @@ Both reads and writes are Lua scripts, so each one is a single atomic step:
 The circuit breaker is driven by a background Temporal workflow. It probes each supplier every 15 seconds and
 opens after 3 failed probes.
 
+> **Example, slow and flaky suppliers:** Supplier B is set to fail twice and then work. The third try succeeds,
+> so you still get the complete list of 7 hotels. If B is set to take 6 seconds instead, each try gives up after
+> 4 seconds. After 3 tries, you get Supplier A's 6 hotels, marked `partial`.
+
+> **Example, circuit breaker timeline:**
+>
+> - **10:00:00:** Supplier B goes down.
+> - **10:00:15, 10:00:30, 10:00:45:** three health probes fail, so B's circuit **opens**.
+> - **While it's open:** searches skip B straight away and return A's hotels in about 0.3 s, instead of waiting
+>   about 2 s for retries. The `X-Circuit-State: A=closed;B=open` header shows this.
+> - **30 seconds later:** a single test probe checks B. If B answers, the circuit **closes** and B is used
+>   again. If not, it stays open for another 30 seconds.
+
 ### 5. Predictable offer selection
 
 Names are matched after trimming, collapsing spaces and ignoring case, so `" Holtin "` and `"HOLTIN"` are the
@@ -93,8 +166,83 @@ same hotel. For each hotel:
 4. A missing or invalid commission ranks lowest, so it can never win a tie.
 5. Hotels offered by only one supplier are kept.
 
+**What happens in Delhi:**
+
+| Hotel         | Supplier A | Supplier B | Winner         | Why                           |
+| ------------- | ---------- | ---------- | -------------- | ----------------------------- |
+| Holtin        | 6000 (10%) | 5340 (20%) | **Supplier B** | cheaper                       |
+| Radison       | 5900 (13%) | 6150 (11%) | **Supplier A** | cheaper                       |
+| Hyatt Regency | 8400 (14%) | 8400 (16%) | **Supplier B** | same price, higher commission |
+| Lemon Tree    | 3200 (8%)  | —          | **Supplier A** | only one supplier has it      |
+| Ibis          | —          | 2900 (9%)  | **Supplier B** | only one supplier has it      |
+
+> **Example, invalid commission:** both suppliers offer a hotel at 7000. Supplier A's commission is missing,
+> and Supplier B's is 0%. Supplier B wins, because a known 0% beats an unknown value. A missing commission is
+> returned as `0` so the response format never breaks.
+
 Similar-looking names, such as "Leela Palace" and "Pearl Palace", are never merged. Possible near-duplicates
-are only reported in `/api/hotels/insights`.
+are only reported in `/api/hotels/insights`, which also explains why each offer won and how much it saved.
+
+> **Example:** `/api/hotels/insights?city=delhi` shows that Holtin was won by Supplier B because it was cheaper,
+> saving 660 (6000 − 5340). It also shows how many hotels each supplier won and the total saving.
+
+### 6. Health checks, logging and error handling
+
+`GET /health` checks both suppliers, Redis and Temporal in parallel. One supplier down gives `degraded` with
+status `200`, because the service can still answer. Both suppliers down, or Redis or Temporal down, gives
+`down` with status `503`.
+
+> **Example:** switch Supplier B off, and `/health` reports `degraded` but still returns `200`. A load balancer
+> keeps sending traffic, because users still get Supplier A's hotels. Switch both off, and it returns `503`.
+
+```json
+{
+  "status": "degraded",
+  "dependencies": {
+    "supplierA": {
+      "status": "up",
+      "latencyMs": 14,
+      "monitor": { "uptimePctLastHour": 100, "consecutiveFailures": 0, "circuit": "closed" }
+    },
+    "supplierB": {
+      "status": "down",
+      "latencyMs": 2001,
+      "error": "timeout after 2000ms",
+      "monitor": { "uptimePctLastHour": 72.5, "consecutiveFailures": 3, "circuit": "open" }
+    },
+    "redis": { "status": "up", "latencyMs": 1 },
+    "temporal": { "status": "up", "latencyMs": 9 }
+  }
+}
+```
+
+- **Structured JSON logs (pino).** One request ID follows a request from the API into every workflow and
+  activity log line, so a single request can be traced end to end. Secrets such as tokens and keys are redacted.
+- **Typed errors in activities.** Network errors, 5xx responses and timeouts are retried. 4xx responses and
+  invalid payloads fail at once, without retries. A single malformed supplier record is dropped and logged
+  instead of failing the whole supplier.
+- **Clear failures in the workflow.** One supplier failing gives a partial result. Both failing gives
+  `AllSuppliersUnavailable`, which the API turns into a `503`.
+- **Fast failure when Temporal is down.** The API returns a `503` in about 5 seconds instead of hanging.
+
+> **Example, tracing one request:** a response carries `X-Request-Id: 7f3c…`. Running
+> `docker compose logs worker | grep 7f3c` shows that request's whole story: the fetch from each supplier, any
+> retry or timeout, any dropped record, and the final hotel count.
+
+> **Example, which errors are retried:** a supplier answering `503` is retried, because it may recover in a
+> moment. A supplier answering `404` is not, because asking again won't help. If Supplier A sends 6 hotels and
+> one has `"price": "abc"`, the other 5 are still used and the bad one is logged.
+
+### 7. Tested like a product
+
+- **310 automated tests:** unit, Temporal workflow and integration tests, run against a real Redis.
+- **A contract guard test** freezes the exact assignment response, so no later change can break it.
+- **An OpenAPI drift test** fails if the Swagger docs stop matching the real API.
+- **`npm run verify`** runs the whole check in one command: a clean stack, every test, the Postman collection,
+  five failure scenarios and a benchmark.
+- **GitHub Actions** runs CI and the end-to-end check on every push.
+
+![Postman collection run: 61 requests, 148 assertions, 0 failed](docs/images/postman-newman.png)
 
 ---
 
@@ -274,6 +422,18 @@ Errors always have the same shape:
 | 503    | both suppliers down, or Redis or Temporal unreachable           |
 | 504    | the workflow took longer than 30 s                              |
 
+**Examples:**
+
+| Request                                              | Result                                     |
+| ---------------------------------------------------- | ------------------------------------------ |
+| `/api/hotels?city=delhi`                             | `200`, 7 hotels                            |
+| `/api/hotels?city=DELHI`                             | `200`, the same 7 hotels (case is ignored) |
+| `/api/hotels?city=atlantis`                          | `200`, `[]`                                |
+| `/api/hotels`                                        | `400`, `city` is required                  |
+| `/api/hotels?city=delhi&minPrice=abc`                | `400`, the price must be a number          |
+| `/api/hotels?city=delhi&minPrice=9000&maxPrice=5000` | `400`, `minPrice` is above `maxPrice`      |
+| Both suppliers switched off                          | `503 SUPPLIERS_UNAVAILABLE`                |
+
 ### Other endpoints
 
 - `GET /supplierA/hotels?city=…` and `GET /supplierB/hotels?city=…`: the mock suppliers.
@@ -282,7 +442,9 @@ Errors always have the same shape:
 - `/admin/*`: chaos switches and cache controls. Protected by `ADMIN_TOKEN` when one is set.
 - `POST /api/hotels/ask`: **experimental** natural-language search, for example
   `{"query": "hotels in delhi under 6k"}`. A rules-based parser handles it by default, so no API key is needed.
-  The optional LLM path is tested with mocked responses.
+  The optional LLM path is tested with mocked responses. For example, `"hotels in delhi under 6k"` is read as
+  `city: delhi, maxPrice: 6000`, and you get the same hotels as
+  `/api/hotels?city=delhi&maxPrice=6000`.
 
 The full spec, with examples, is at http://localhost:3000/docs once the stack is running.
 
